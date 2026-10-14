@@ -1,13 +1,12 @@
-const express = require('express');
-const router = express.Router();
-const { getMyBooks, getBookById } = require('../controllers/bookController');
-const { authenticate } = require('../middleware/auth');
+const router = require('express').Router();
+const books = require('../controllers/bookController');
+const { authenticate, requireAuthor } = require('../middleware/auth');
+const validate = require('../middleware/validate');
+const v = require('../validators');
 
-// All book routes are protected
 router.use(authenticate);
 
-router.get('/my', getMyBooks);
-router.get('/:id', getBookById);
+router.get('/', requireAuthor, books.listMyBooks);
+router.get('/:id', validate([v.mongoIdParam]), books.getBook);
 
 module.exports = router;
-

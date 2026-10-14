@@ -1,40 +1,46 @@
-const errorHandler = (err, req, res, next) => {
-  console.error(`[Error] ${req.method} ${req.url} ->`, err);
+const logger = require('../utils/logger');
+const { HttpError } = require('../utils/http');
 
-  // Mongoose validation error
-  if (err.name === 'ValidationError') {
-    const messages = Object.values(err.errors).map((val) => val.message);
-    return res.status(400).json({
-      success: false,
-      message: 'Validation failed',
-      errors: messages,
-    });
-  }
+const CODES = { 400: 'BAD_REQUEST', 401: 'UNAUTHORIZED', 403: 'FORBIDDEN', 404: 'NOT_FOUND', 409: 'CONFLICT', 429: 'RATE_LIMITED' };
 
-  // Mongoose CastError (e.g. invalid ObjectId)
-  if (err.name === 'CastError') {
-    return res.status(400).json({
-      success: false,
-      message: `Invalid format for resource parameter: ${err.path}`,
-    });
-  }
-
-  // Duplicate key error
-  if (err.code === 11000) {
-    const field = Object.keys(err.keyValue)[0];
-    return res.status(409).json({
-      success: false,
-      message: `Duplicate value entered for ${field}. Please use another value.`,
-    });
-  }
-
-  const statusCode = err.statusCode || 500;
-  res.status(statusCode).json({
+function notFoundHandler(req, res) {
+  res.status(404).json({
     success: false,
-    message: err.message || 'Internal Server Error',
-    ...(process.env.NODE_ENV === 'development' && { stack: err.stack }),
+    error: { code: 'NOT_FOUND', message: `No route for ${req.method} ${req.originalUrl}` },
   });
-};
+}
 
-module.exports = errorHandler;
+// Every error leaves the API in the same shape:
+// { success: false, error: { code, message, details? } }
+// eslint-disable-next-line no-unused-vars
+function errorHandler(err, req, res, next) {
+  let status = 500;
+  let message = 'Something went wrong on our side. Please try again.';
+  let details;
 
+  if (err instanceof HttpError) {
+    ({ status, message, details } = err);
+  } else if (err.name === 'ValidationError') {
+    status = 400;
+    details = Object.values(err.errors).map((e) => ({ field: e.path, message: e.message }));
+    message = details[0]?.message || 'Validation failed.';
+  } else if (err.name === 'CastError') {
+    status = 400;
+    message = `Invalid value for ${err.path}.`;
+  } else if (err.code === 11000) {
+    status = 409;
+    message = `A record with this ${Object.keys(err.keyValue || {})[0] || 'value'} already exists.`;
+  } else if (err.type === 'entity.parse.failed') {
+    status = 400;
+    message = 'Request body is not valid JSON.';
+  }
+
+  if (status >= 500) logger.error(`${req.method} ${req.originalUrl}`, err);
+
+  res.status(status).json({
+    success: false,
+    error: { code: CODES[status] || 'INTERNAL_ERROR', message, ...(details && { details }) },
+  });
+}
+
+module.exports = { errorHandler, notFoundHandler };

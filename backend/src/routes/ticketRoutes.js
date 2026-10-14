@@ -1,20 +1,15 @@
-const express = require('express');
-const router = express.Router();
-const {
-  createTicket,
-  getMyTickets,
-  getTicketById,
-  addAuthorMessage,
-} = require('../controllers/ticketController');
-const { authenticate } = require('../middleware/auth');
+const router = require('express').Router();
+const tickets = require('../controllers/ticketController');
+const { authenticate, requireAuthor } = require('../middleware/auth');
+const validate = require('../middleware/validate');
+const v = require('../validators');
 
-// All ticket routes are protected
-router.use(authenticate);
+// Author-facing ticket API. Admins use /api/admin/tickets instead.
+router.use(authenticate, requireAuthor);
 
-router.post('/', createTicket);
-router.get('/my', getMyTickets);
-router.get('/:id', getTicketById);
-router.post('/:id/messages', addAuthorMessage);
+router.get('/', validate(v.authorTicketList), tickets.list);
+router.post('/', validate(v.createTicket), tickets.create);
+router.get('/:id', validate([v.mongoIdParam]), tickets.get);
+router.post('/:id/messages', validate(v.addMessage), tickets.addMessage);
 
 module.exports = router;
-

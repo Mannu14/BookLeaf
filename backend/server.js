@@ -1,101 +1,36 @@
 const http = require('http');
-const express = require('express');
-const cors = require('cors');
-const morgan = require('morgan');
-const path = require('path');
 const config = require('./src/config/config');
-const { connectDB } = require('./src/config/db');
-const { initSocket } = require('./src/services/socketService');
-const errorHandler = require('./src/middleware/errorHandler');
+const logger = require('./src/utils/logger');
+const { connectDB, disconnectDB } = require('./src/config/db');
+const { createApp } = require('./src/app');
+const { initSocket } = require('./src/realtime/socket');
+const { seedIfEmpty } = require('./src/seed/seed');
+const { aiService } = require('./src/ai/aiService');
 
-// Route imports
-const authRoutes = require('./src/routes/authRoutes');
-const bookRoutes = require('./src/routes/bookRoutes');
-const ticketRoutes = require('./src/routes/ticketRoutes');
-const adminRoutes = require('./src/routes/adminRoutes');
+async function start() {
+  await connectDB();
+  if (config.autoSeed) await seedIfEmpty();
 
-const app = express();
-const server = http.createServer(app);
+  const server = http.createServer(createApp());
+  initSocket(server);
 
-// Initialize WebSockets
-initSocket(server);
+  server.listen(config.port, () => {
+    const ai = aiService.status;
+    logger.info(`API listening on http://localhost:${config.port}`);
+    logger.info(`AI provider: ${ai.provider}${ai.model ? ` (${ai.model})` : ' - rule-based fallback only'}`);
+  });
 
-const helmet = require('helmet');
-const rateLimit = require('express-rate-limit');
-
-// Security Headers
-app.use(helmet({ crossOriginResourcePolicy: false }));
-
-// Rate limit for auth login endpoint (anti-brute-force)
-const authLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 100,
-  message: { success: false, message: 'Too many authentication attempts. Please try again after 15 minutes.' },
-  standardHeaders: true,
-  legacyHeaders: false,
-});
-app.use('/api/auth/login', authLimiter);
-
-// Middleware
-app.use(
-  cors({
-    origin: [config.clientUrl, 'http://localhost:5173', 'http://127.0.0.1:5173', '*'],
-    credentials: true,
-  })
-);
-app.use(express.json({ limit: '10mb' }));
-app.use(express.urlencoded({ extended: true, limit: '10mb' }));
-
-if (process.env.NODE_ENV !== 'test') {
-  app.use(morgan('dev'));
+  const shutdown = async (signal) => {
+    logger.info(`${signal} received, shutting down`);
+    server.close();
+    await disconnectDB();
+    process.exit(0);
+  };
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 }
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'ok',
-    service: 'BookLeaf API Server',
-    timestamp: new Date().toISOString(),
-    aiProvider: config.aiProvider,
-    geminiConfigured: Boolean(config.geminiApiKey),
-    openaiConfigured: Boolean(config.openaiApiKey),
-  });
+start().catch((err) => {
+  logger.error('Failed to start server:', err);
+  process.exit(1);
 });
-
-// Mount API routes
-app.use('/api/auth', authRoutes);
-app.use('/api/books', bookRoutes);
-app.use('/api/tickets', ticketRoutes);
-app.use('/api/admin', adminRoutes);
-
-// 404 Route Handler
-app.use((req, res) => {
-  res.status(404).json({
-    success: false,
-    message: `Endpoint ${req.method} ${req.url} does not exist.`,
-  });
-});
-
-// Centralized Error Handling Middleware
-app.use(errorHandler);
-
-// Connect DB and Start Server
-const startServer = async () => {
-  try {
-    await connectDB();
-    server.listen(config.port, () => {
-      console.log(`🚀 BookLeaf Backend Server running on http://localhost:${config.port}`);
-      console.log(`🤖 AI Provider: ${config.aiProvider} (Gemini: ${Boolean(config.geminiApiKey)}, OpenAI: ${Boolean(config.openaiApiKey)})`);
-    });
-  } catch (err) {
-    console.error('❌ Failed to start server:', err.message);
-    process.exit(1);
-  }
-};
-
-if (require.main === module) {
-  startServer();
-}
-
-module.exports = { app, server };
-

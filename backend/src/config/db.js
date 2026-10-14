@@ -1,52 +1,45 @@
 const mongoose = require('mongoose');
 const config = require('./config');
+const logger = require('../utils/logger');
 
 let memoryServer = null;
 
-const connectDB = async () => {
-  try {
-    mongoose.set('strictQuery', false);
-    
-    // Attempt standard connection to specified URI
-    console.log(`Connecting to MongoDB at: ${config.mongoUri}...`);
-    await mongoose.connect(config.mongoUri, {
-      serverSelectionTimeoutMS: 3000,
-    });
-    console.log(' MongoDB Connected Successfully to', config.mongoUri);
-  } catch (primaryErr) {
-    console.warn('⚠️ Could not connect to primary MongoDB URI:', primaryErr.message);
-    console.log('🔄 Attempting fallback: Starting in-memory MongoDB server...');
-    
-    try {
-      const { MongoMemoryServer } = require('mongodb-memory-server');
-      memoryServer = await MongoMemoryServer.create({
-        instance: {
-          dbName: 'bookleaf',
-        },
-      });
-      const memoryUri = memoryServer.getUri();
-      console.log(` In-memory MongoDB started at: ${memoryUri}`);
-      
-      await mongoose.connect(memoryUri);
-      console.log(' MongoDB Connected Successfully (In-Memory Fallback)');
-    } catch (fallbackErr) {
-      console.error('❌ Failed to start in-memory MongoDB fallback:', fallbackErr.message);
-      throw primaryErr;
-    }
-  }
-};
+async function startInMemory() {
+  // Required lazily so production installs never pay for it unless used.
+  const { MongoMemoryServer } = require('mongodb-memory-server');
+  memoryServer = await MongoMemoryServer.create({ instance: { dbName: 'bookleaf' } });
+  return memoryServer.getUri();
+}
 
-const disconnectDB = async () => {
+async function connectDB({ uri = config.mongoUri, allowInMemory = config.allowInMemoryDb } = {}) {
+  mongoose.set('strictQuery', true);
+
   try {
-    await mongoose.disconnect();
-    if (memoryServer) {
-      await memoryServer.stop();
-    }
-    console.log('MongoDB disconnected.');
+    await mongoose.connect(uri, { serverSelectionTimeoutMS: 4000 });
+    logger.info(`MongoDB connected (${redact(uri)})`);
+    return { inMemory: false };
   } catch (err) {
-    console.error('Error during MongoDB disconnect:', err);
+    if (!allowInMemory) throw err;
+
+    logger.warn(`MongoDB at ${redact(uri)} unreachable (${err.message}). Starting in-memory instance.`);
+    const memoryUri = await startInMemory();
+    await mongoose.connect(memoryUri);
+    logger.info('MongoDB connected (in-memory). Data resets on restart.');
+    return { inMemory: true };
   }
-};
+}
 
-module.exports = { connectDB, disconnectDB };
+async function disconnectDB() {
+  await mongoose.disconnect();
+  if (memoryServer) {
+    await memoryServer.stop();
+    memoryServer = null;
+  }
+}
 
+// Hide credentials when logging connection strings.
+function redact(uri) {
+  return uri.replace(/\/\/([^@]+)@/, '//***@');
+}
+
+module.exports = { connectDB, disconnectDB, startInMemory };

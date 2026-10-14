@@ -1,28 +1,20 @@
-const express = require('express');
-const router = express.Router();
-const {
-  getAllTickets,
-  getTicketDetailsAdmin,
-  updateTicketAdmin,
-  regenerateAIDraft,
-  sendAdminReply,
-  addInternalNote,
-  getAdminStats,
-  getAllAuthors,
-} = require('../controllers/adminController');
+const router = require('express').Router();
+const admin = require('../controllers/adminController');
 const { authenticate, requireAdmin } = require('../middleware/auth');
+const validate = require('../middleware/validate');
+const v = require('../validators');
 
-// All admin routes strictly require admin role
 router.use(authenticate, requireAdmin);
 
-router.get('/tickets', getAllTickets);
-router.get('/tickets/:id', getTicketDetailsAdmin);
-router.patch('/tickets/:id', updateTicketAdmin);
-router.post('/tickets/:id/ai-draft', regenerateAIDraft);
-router.post('/tickets/:id/replies', sendAdminReply);
-router.post('/tickets/:id/notes', addInternalNote);
-router.get('/stats', getAdminStats);
-router.get('/authors', getAllAuthors);
+router.get('/stats', admin.getStats);
+router.get('/authors', admin.listAuthors);
+router.get('/team', admin.listTeam);
+
+router.get('/tickets', validate(v.adminTicketList), admin.listTickets);
+router.get('/tickets/:id', validate([v.mongoIdParam]), admin.getTicket);
+router.patch('/tickets/:id', validate(v.updateTicket), admin.updateTicket);
+router.post('/tickets/:id/draft', validate([v.mongoIdParam]), admin.generateDraft);
+router.post('/tickets/:id/replies', validate(v.sendReply), admin.sendReply);
+router.post('/tickets/:id/notes', validate(v.addNote), admin.addNote);
 
 module.exports = router;
-
