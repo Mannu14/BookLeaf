@@ -1,186 +1,149 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useEffect, useState } from 'react';
+import { ArrowRight, ChevronRight } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import DemoSwitcherModal from '../components/DemoSwitcherModal';
-import { Lock, Mail, ArrowRight, Shield, User, Sparkles, CheckCircle2 } from 'lucide-react';
+import { api, fieldErrors } from '../lib/api';
+import Logo from '../components/Logo';
+import { Avatar, Button, Field, Input } from '../components/ui';
+
+const DEMO_PASSWORD = { admin: 'admin123', author: 'author123' };
 
 export default function Login() {
+  const { login } = useAuth();
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(null);
+  const [accounts, setAccounts] = useState([]);
 
-  const { login } = useAuth();
-  const navigate = useNavigate();
+  useEffect(() => {
+    api
+      .get('/auth/demo-accounts')
+      .then((res) => setAccounts(res.data.data))
+      .catch(() => setAccounts([]));
+  }, []);
 
-  const handleSubmit = async (e) => {
-    e.preventDefault();
+  const signIn = async (e, creds) => {
+    e?.preventDefault();
+    const target = creds || { email, password };
+    setSubmitting(creds ? target.email : 'form');
     setError('');
-    setIsLoading(true);
-
+    setErrors({});
     try {
-      const user = await login(email, password);
-      if (user.role === 'admin') {
-        navigate('/admin/tickets');
-      } else {
-        navigate('/');
-      }
+      await login(target.email, target.password);
     } catch (err) {
-      setError(err.message || 'Login failed. Please check credentials.');
-    } finally {
-      setIsLoading(false);
+      setErrors(fieldErrors(err));
+      setError(err.details?.length ? '' : err.message);
+      setSubmitting(null);
     }
   };
 
-  const handleQuickLogin = async (userEmail, userPass) => {
-    setEmail(userEmail);
-    setPassword(userPass);
-    setError('');
-    setIsLoading(true);
-
-    try {
-      const user = await login(userEmail, userPass);
-      if (user.role === 'admin') {
-        navigate('/admin/tickets');
-      } else {
-        navigate('/');
-      }
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
+  const admins = accounts.filter((a) => a.role === 'admin');
+  const authors = accounts.filter((a) => a.role === 'author');
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-emerald-950 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
-      <div className="sm:mx-auto sm:w-full sm:max-w-md text-center">
-        <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-400 text-white shadow-xl shadow-emerald-500/30 text-2xl font-black mb-4">
-          🍃
+    <div className="grid min-h-screen lg:grid-cols-[1.05fr_1fr]">
+      {/* Brand panel */}
+      <section className="relative hidden overflow-hidden bg-leaf-800 text-paper lg:flex lg:flex-col lg:justify-between lg:p-12">
+        <div className="pointer-events-none absolute inset-0 opacity-[0.07] [background-image:repeating-linear-gradient(0deg,transparent,transparent_31px,#f7f5f0_31px,#f7f5f0_32px)]" />
+        <div className="pointer-events-none absolute -right-24 top-1/3 h-96 w-96 rounded-full bg-leaf-500/20 blur-3xl" />
+        <Logo className="relative [&_p]:text-paper [&_p:last-child]:text-paper/60 [&_svg]:ring-1 [&_svg]:ring-paper/25 [&_svg]:rounded-lg" subtitle="Author support" />
+
+        <div className="relative max-w-md">
+          <p className="font-display text-[40px] leading-[1.1]">Every author deserves a straight answer, fast.</p>
+          <p className="mt-6 text-[15px] leading-relaxed text-paper/70">
+            Track your books and royalties, raise a query in a minute, and see our team's reply the moment it is sent.
+          </p>
         </div>
-        <h2 className="text-3xl font-extrabold text-white tracking-tight">
-          BookLeaf Publishing
-        </h2>
-        <p className="mt-1 text-sm text-slate-300">
-          Author Support & AI-Assisted Operations Portal
-        </p>
-      </div>
 
-      <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-6 shadow-2xl rounded-2xl sm:px-10 border border-slate-100">
-          {error && (
-            <div className="mb-5 p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
-              <span>⚠️</span> {error}
+        <dl className="relative grid grid-cols-3 gap-6 border-t border-paper/15 pt-6 text-[13px]">
+          {[
+            ['22,000+', 'titles in catalogue'],
+            ['1,200+', 'books published monthly'],
+            ['80%', 'of net profit to authors'],
+          ].map(([n, l]) => (
+            <div key={l}>
+              <dt className="num font-display text-[22px] text-paper">{n}</dt>
+              <dd className="mt-1 text-paper/60">{l}</dd>
             </div>
-          )}
+          ))}
+        </dl>
+      </section>
 
-          <form onSubmit={handleSubmit} className="space-y-4">
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Email Address
-              </label>
-              <div className="relative">
-                <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="email"
-                  required
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="author@email.com or admin@bookleaf.pub"
-                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-                />
-              </div>
-            </div>
+      {/* Form */}
+      <section className="flex items-center justify-center px-5 py-12 sm:px-10">
+        <div className="w-full max-w-[400px] animate-fade-up">
+          <Logo className="mb-10 lg:hidden" subtitle="Author support" />
+          <h1 className="font-display text-[30px]">Sign in</h1>
+          <p className="mt-1.5 text-ink-muted">Use the email registered with BookLeaf.</p>
 
-            <div>
-              <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-                Password
-              </label>
-              <div className="relative">
-                <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
-                <input
-                  type="password"
-                  required
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="••••••••"
-                  className="w-full pl-9 pr-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-                />
-              </div>
-            </div>
-
-            <button
-              type="submit"
-              disabled={isLoading}
-              className="w-full mt-2 flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl text-sm font-bold text-white bg-emerald-600 hover:bg-emerald-700 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:ring-offset-2 shadow-lg shadow-emerald-600/30 transition disabled:opacity-50"
-            >
-              {isLoading ? (
-                <span className="inline-flex items-center gap-2">
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Signing in...
-                </span>
-              ) : (
-                <>
-                  Sign In to Portal <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
+          <form onSubmit={signIn} className="mt-8 space-y-4" noValidate>
+            {error && <div className="rounded-lg border border-clay-100 bg-clay-50 px-3 py-2.5 text-[13px] text-clay-700">{error}</div>}
+            <Field label="Email" htmlFor="email" error={errors.email}>
+              <Input id="email" type="email" autoComplete="email" value={email} onChange={(e) => setEmail(e.target.value)} invalid={!!errors.email} placeholder="you@example.com" />
+            </Field>
+            <Field label="Password" htmlFor="password" error={errors.password}>
+              <Input id="password" type="password" autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} invalid={!!errors.password} />
+            </Field>
+            <Button type="submit" size="lg" className="w-full" loading={submitting === 'form'}>
+              Sign in <ArrowRight className="h-4 w-4" />
+            </Button>
           </form>
 
-          {/* Quick 1-Click Evaluation Credentials for Reviewers */}
-          <div className="mt-6 pt-5 border-t border-slate-100">
-            <div className="text-[11px] font-bold uppercase tracking-wider text-slate-400 text-center mb-3">
-              ⚡ Instant 1-Click Test Logins
+          {accounts.length > 0 && (
+            <div className="mt-10">
+              <div className="flex items-center gap-3">
+                <span className="h-px flex-1 bg-line" />
+                <span className="eyebrow">Demo accounts</span>
+                <span className="h-px flex-1 bg-line" />
+              </div>
+
+              <div className="mt-4 space-y-1.5">
+                {admins.slice(0, 1).map((a) => (
+                  <DemoRow key={a.email} account={a} busy={submitting === a.email} onClick={() => signIn(null, { email: a.email, password: DEMO_PASSWORD.admin })} />
+                ))}
+              </div>
+
+              <details className="group mt-1.5">
+                <summary className="flex cursor-pointer list-none items-center gap-1 rounded-lg px-3 py-2 text-[13px] text-ink-muted transition hover:bg-ink/[0.03] hover:text-ink">
+                  <ChevronRight className="h-4 w-4 transition group-open:rotate-90" />
+                  {authors.length} author accounts
+                </summary>
+                <div className="mt-1 max-h-72 space-y-1 overflow-y-auto pr-1">
+                  {authors.map((a) => (
+                    <DemoRow key={a.email} account={a} busy={submitting === a.email} onClick={() => signIn(null, { email: a.email, password: DEMO_PASSWORD.author })} />
+                  ))}
+                </div>
+              </details>
+              <p className="mt-3 px-3 text-[12px] text-ink-faint">
+                Passwords: <span className="font-mono">admin123</span> for staff, <span className="font-mono">author123</span> for authors.
+              </p>
             </div>
-            <div className="grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('admin@bookleaf.pub', 'admin123')}
-                className="flex items-center justify-center gap-1.5 p-2 rounded-xl border border-indigo-200 bg-indigo-50/70 hover:bg-indigo-100 text-indigo-700 text-xs font-semibold transition"
-              >
-                <Shield className="w-3.5 h-3.5" />
-                Login as Admin
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickLogin('rohit.kapoor@email.com', 'author123')}
-                className="flex items-center justify-center gap-1.5 p-2 rounded-xl border border-emerald-200 bg-emerald-50/70 hover:bg-emerald-100 text-emerald-800 text-xs font-semibold transition"
-              >
-                <User className="w-3.5 h-3.5" />
-                Login as Author
-              </button>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsSwitcherOpen(true)}
-              className="w-full mt-2 text-center text-xs text-slate-500 hover:text-slate-800 font-medium py-1 transition"
-            >
-              Or pick from all 10 authors →
-            </button>
-          </div>
+          )}
         </div>
-
-        {/* Feature Highlights Footer */}
-        <div className="mt-6 grid grid-cols-3 gap-2 text-center text-slate-400 text-[11px]">
-          <div className="flex items-center justify-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>AI Auto-Classify</span>
-          </div>
-          <div className="flex items-center justify-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Real-time Sync</span>
-          </div>
-          <div className="flex items-center justify-center gap-1">
-            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-            <span>Smart Priority</span>
-          </div>
-        </div>
-      </div>
-
-      <DemoSwitcherModal isOpen={isSwitcherOpen} onClose={() => setIsSwitcherOpen(false)} />
+      </section>
     </div>
   );
 }
 
+function DemoRow({ account, onClick, busy }) {
+  const isAdmin = account.role === 'admin';
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      disabled={busy}
+      className="group flex w-full items-center gap-3 rounded-lg border border-transparent px-3 py-2 text-left transition hover:border-line hover:bg-white hover:shadow-card disabled:opacity-60"
+    >
+      <Avatar name={account.name} size="sm" tone={isAdmin ? 'ink' : 'leaf'} />
+      <div className="min-w-0 flex-1 leading-tight">
+        <p className="truncate text-[13px] font-medium">
+          {account.name}
+          {isAdmin && <span className="ml-2 text-[11px] font-normal text-ink-muted">Support team</span>}
+        </p>
+        <p className="truncate text-[12px] text-ink-muted">{account.email}</p>
+      </div>
+      <ArrowRight className="h-4 w-4 text-ink-faint opacity-0 transition group-hover:translate-x-0.5 group-hover:opacity-100" />
+    </button>
+  );
+}

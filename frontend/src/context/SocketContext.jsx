@@ -1,53 +1,50 @@
-import React, { createContext, useContext, useEffect } from 'react';
-import { getSocket } from '../services/socket';
+import { createContext, useContext, useEffect, useRef, useState } from 'react';
+import { io } from 'socket.io-client';
 import { useAuth } from './AuthContext';
 
-const SocketContext = createContext(null);
+const SocketContext = createContext({ socket: null, connected: false });
 
-export const SocketProvider = ({ children }) => {
-  const { user } = useAuth();
-  const socket = getSocket();
+// One socket per session. The server places it in the right room based on
+// the JWT, so the client never asks to join anything.
+export function SocketProvider({ children }) {
+  const { token } = useAuth();
+  const [socket, setSocket] = useState(null);
+  const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    if (!user) return;
+    if (!token) return undefined;
 
-    if (user.role === 'admin') {
-      socket.emit('join_admin_room');
-    } else if (user.role === 'author' && user.author_id) {
-      socket.emit('join_author_room', user.author_id);
-    }
-  }, [user, socket]);
+    const s = io(import.meta.env.VITE_SOCKET_URL || undefined, {
+      auth: { token },
+      transports: ['websocket', 'polling'],
+    });
+    s.on('connect', () => setConnected(true));
+    s.on('disconnect', () => setConnected(false));
+    setSocket(s);
 
-  const joinTicketRoom = (ticketId) => {
-    if (ticketId) {
-      socket.emit('join_ticket', ticketId);
-    }
-  };
+    return () => {
+      s.close();
+      setSocket(null);
+      setConnected(false);
+    };
+  }, [token]);
 
-  const leaveTicketRoom = (ticketId) => {
-    if (ticketId) {
-      socket.emit('leave_ticket', ticketId);
-    }
-  };
+  return <SocketContext.Provider value={{ socket, connected }}>{children}</SocketContext.Provider>;
+}
 
-  return (
-    <SocketContext.Provider
-      value={{
-        socket,
-        joinTicketRoom,
-        leaveTicketRoom,
-      }}
-    >
-      {children}
-    </SocketContext.Provider>
-  );
-};
+export const useSocket = () => useContext(SocketContext);
 
-export const useSocket = () => {
-  const context = useContext(SocketContext);
-  if (!context) {
-    throw new Error('useSocket must be used within a SocketProvider');
-  }
-  return context;
-};
+// Subscribe to a socket event for the lifetime of a component. The handler is
+// kept in a ref so callers do not need to memoise it.
+export function useSocketEvent(event, handler) {
+  const { socket } = useSocket();
+  const ref = useRef(handler);
+  ref.current = handler;
 
+  useEffect(() => {
+    if (!socket) return undefined;
+    const listener = (payload) => ref.current(payload);
+    socket.on(event, listener);
+    return () => socket.off(event, listener);
+  }, [socket, event]);
+}

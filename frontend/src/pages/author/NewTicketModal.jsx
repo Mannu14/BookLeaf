@@ -1,232 +1,168 @@
-import React, { useState } from 'react';
-import api from '../../services/api';
-import {
-  X,
-  Send,
-  Paperclip,
-  Trash2,
-  FileText,
-  AlertCircle,
-  Sparkles,
-  BookOpen,
-} from 'lucide-react';
+import { useEffect, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { FileText, Paperclip, X } from 'lucide-react';
+import { api, fieldErrors } from '../../lib/api';
+import { useToast } from '../../context/ToastContext';
+import { Button, Field, Input, Modal, Select, Textarea } from '../../components/ui';
+import { cn } from '../../lib/cn';
 
-export default function NewTicketModal({
-  isOpen,
-  onClose,
-  books = [],
-  initialBookId = null,
-  onTicketCreated,
-}) {
-  const [bookId, setBookId] = useState(initialBookId || 'general');
-  const [subject, setSubject] = useState('');
-  const [description, setDescription] = useState('');
-  const [attachment, setAttachment] = useState(null);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [error, setError] = useState('');
+const ACCEPTED = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
+const MAX_KB = 5 * 1024;
 
-  if (!isOpen) return null;
+const EMPTY = { book_id: 'general', subject: '', description: '' };
 
-  const handleFileChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-      if (file.size > 5 * 1024 * 1024) {
-        setError('File size must be under 5MB.');
-        return;
-      }
-      setAttachment({
-        filename: file.name,
-        original_name: file.name,
-        size: Math.round(file.size / 1024), // KB
-        mime_type: file.type || 'application/octet-stream',
-      });
-      setError('');
+export default function NewTicketModal({ open, onClose, books = [], defaultBookId }) {
+  const navigate = useNavigate();
+  const toast = useToast();
+  const fileInput = useRef(null);
+  const [form, setForm] = useState(EMPTY);
+  const [file, setFile] = useState(null);
+  const [dragging, setDragging] = useState(false);
+  const [errors, setErrors] = useState({});
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (open) {
+      setForm({ ...EMPTY, book_id: defaultBookId || 'general' });
+      setFile(null);
+      setErrors({});
     }
+  }, [open, defaultBookId]);
+
+  const set = (key) => (e) => {
+    setForm((f) => ({ ...f, [key]: e.target.value }));
+    setErrors((errs) => (errs[key] ? { ...errs, [key]: undefined } : errs));
   };
 
-  const handleSubmit = async (e) => {
+  const pickFile = (f) => {
+    if (!f) return;
+    if (!ACCEPTED.includes(f.type)) return setErrors((e) => ({ ...e, attachment: 'Use a PNG, JPG, WEBP or PDF file.' }));
+    if (f.size / 1024 > MAX_KB) return setErrors((e) => ({ ...e, attachment: 'Files must be 5 MB or smaller.' }));
+    setErrors((e) => ({ ...e, attachment: undefined }));
+    setFile(f);
+  };
+
+  const submit = async (e) => {
     e.preventDefault();
-    if (!subject.trim() || !description.trim()) {
-      setError('Please provide both a subject and a description.');
-      return;
-    }
-
-    setError('');
-    setIsSubmitting(true);
-
+    setSubmitting(true);
+    setErrors({});
     try {
-      const payload = {
-        book_id: bookId === 'general' ? null : bookId,
-        subject: subject.trim(),
-        description: description.trim(),
-        attachment: attachment || null,
-      };
-
-      const res = await api.post('/tickets', payload);
-
-      if (onTicketCreated) {
-        onTicketCreated(res.data.data);
-      }
-
-      // Reset and close
-      setSubject('');
-      setDescription('');
-      setAttachment(null);
-      setBookId('general');
+      const res = await api.post('/tickets', {
+        ...form,
+        // Only metadata is sent; binary upload is out of scope for this version.
+        attachment: file ? { original_name: file.name, mime_type: file.type, size_kb: Math.ceil(file.size / 1024) } : null,
+      });
+      const ticket = res.data.data;
+      toast.success(`Ticket ${ticket.ticket_number} raised`, 'Our team has been notified and will reply here.');
       onClose();
+      navigate(`/tickets/${ticket._id}`);
     } catch (err) {
-      setError(err.message || 'Failed to submit support ticket.');
+      const fe = fieldErrors(err);
+      setErrors(Object.keys(fe).length ? fe : { form: err.message });
     } finally {
-      setIsSubmitting(false);
+      setSubmitting(false);
     }
   };
+
+  const selectedBook = books.find((b) => b._id === form.book_id);
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl border border-slate-200 max-w-xl w-full max-h-[90vh] flex flex-col overflow-hidden">
-        {/* Header */}
-        <div className="px-6 py-4 border-b border-slate-100 flex items-center justify-between bg-slate-50">
-          <div>
-            <h3 className="text-lg font-bold text-slate-800 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-emerald-600" />
-              Submit a Support Query
-            </h3>
-            <p className="text-xs text-slate-500 mt-0.5">
-              Our AI support engine will categorize and route your inquiry to the right specialist.
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Raise a support query"
+      description="Tell us what is going on. The more specific, the faster we can help."
+      className="sm:max-w-xl"
+      footer={
+        <>
+          <Button variant="ghost" onClick={onClose} type="button">
+            Cancel
+          </Button>
+          <Button type="submit" form="new-ticket" loading={submitting}>
+            Submit query
+          </Button>
+        </>
+      }
+    >
+      <form id="new-ticket" onSubmit={submit} className="space-y-5" noValidate>
+        {errors.form && <div className="rounded-lg bg-clay-50 px-3 py-2.5 text-[13px] text-clay-700">{errors.form}</div>}
+
+        <Field label="What is this about?" htmlFor="book" error={errors.book_id}>
+          <Select id="book" value={form.book_id} onChange={set('book_id')}>
+            <option value="general">General / account level</option>
+            {books.map((b) => (
+              <option key={b._id} value={b._id}>
+                {b.title}
+                {b.status !== 'Published & Live' ? ' (in production)' : ''}
+              </option>
+            ))}
+          </Select>
+          {selectedBook && (
+            <p className="text-[12px] text-ink-muted">
+              {selectedBook.status}
+              {selectedBook.isbn ? ` · ISBN ${selectedBook.isbn}` : ''}
             </p>
-          </div>
-          <button
-            onClick={onClose}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-slate-600 hover:bg-slate-200/60 transition"
-          >
-            <X className="w-5 h-5" />
-          </button>
-        </div>
-
-        {/* Form Body */}
-        <form onSubmit={handleSubmit} className="p-6 overflow-y-auto space-y-4">
-          {error && (
-            <div className="p-3 rounded-xl bg-red-50 border border-red-200 text-red-700 text-xs font-medium flex items-center gap-2">
-              <AlertCircle className="w-4 h-4 shrink-0" />
-              {error}
-            </div>
           )}
+        </Field>
 
-          {/* Book Dropdown */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              What is this query about?
-            </label>
-            <select
-              value={bookId}
-              onChange={(e) => setBookId(e.target.value)}
-              className="w-full px-3 py-2 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-            >
-              <option value="general">General / Account Level</option>
-              {books.map((b) => (
-                <option key={b._id} value={b._id}>
-                  Book: {b.title} ({b.status})
-                </option>
-              ))}
-            </select>
-          </div>
+        <Field label="Subject" htmlFor="subject" error={errors.subject} aside={<Counter value={form.subject} max={200} />}>
+          <Input id="subject" value={form.subject} onChange={set('subject')} maxLength={200} placeholder="e.g. Royalty for last quarter not received" invalid={!!errors.subject} />
+        </Field>
 
-          {/* Subject Line */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Subject Line
-            </label>
-            <input
-              type="text"
-              required
-              value={subject}
-              onChange={(e) => setSubject(e.target.value)}
-              placeholder="e.g. Question about Q4 royalty calculation or Amazon availability"
-              className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-            />
-          </div>
+        <Field label="Details" htmlFor="description" error={errors.description} aside={<Counter value={form.description} max={5000} />}>
+          <Textarea
+            id="description"
+            rows={6}
+            value={form.description}
+            onChange={set('description')}
+            maxLength={5000}
+            placeholder="Include dates, amounts, order numbers or the platform where you noticed the issue."
+            invalid={!!errors.description}
+          />
+        </Field>
 
-          {/* Description */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Detailed Description
-            </label>
-            <textarea
-              required
-              rows={5}
-              value={description}
-              onChange={(e) => setDescription(e.target.value)}
-              placeholder="Please provide details, dates, or specific numbers so our team can resolve your inquiry swiftly..."
-              className="w-full px-3 py-2.5 text-sm bg-slate-50 border border-slate-300 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition"
-            />
-          </div>
-
-          {/* Optional Attachment */}
-          <div>
-            <label className="block text-xs font-bold uppercase tracking-wider text-slate-700 mb-1">
-              Optional Attachment (Photos of misprints, error screenshots)
-            </label>
-            {attachment ? (
-              <div className="flex items-center justify-between p-3 rounded-xl border border-emerald-200 bg-emerald-50/50">
-                <div className="flex items-center gap-2 text-xs font-medium text-emerald-900 truncate">
-                  <FileText className="w-4 h-4 text-emerald-600 shrink-0" />
-                  <span className="truncate">{attachment.filename}</span>
-                  <span className="text-[10px] text-emerald-600 shrink-0">({attachment.size} KB)</span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => setAttachment(null)}
-                  className="p-1 text-slate-400 hover:text-red-600 rounded transition"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ) : (
-              <label className="flex flex-col items-center justify-center p-4 border-2 border-dashed border-slate-300 rounded-xl hover:border-slate-400 hover:bg-slate-50 cursor-pointer transition">
-                <Paperclip className="w-5 h-5 text-slate-400 mb-1" />
-                <span className="text-xs text-slate-600 font-medium">Click to attach a file</span>
-                <span className="text-[10px] text-slate-400">PNG, JPG, PDF up to 5MB</span>
-                <input
-                  type="file"
-                  onChange={handleFileChange}
-                  accept="image/*,.pdf"
-                  className="hidden"
-                />
-              </label>
-            )}
-          </div>
-
-          {/* Modal Footer */}
-          <div className="pt-3 border-t border-slate-100 flex items-center justify-end gap-3">
+        <Field label="Attachment" hint="Optional. Screenshots or photos of a defective copy help us verify faster." error={errors.attachment || errors['attachment.mime_type'] || errors['attachment.size_kb']}>
+          {file ? (
+            <div className="flex items-center gap-3 rounded-lg border border-line bg-paper px-3 py-2.5">
+              <FileText className="h-4 w-4 shrink-0 text-ink-muted" />
+              <span className="min-w-0 flex-1 truncate text-[13px]">{file.name}</span>
+              <span className="num text-[12px] text-ink-muted">{Math.ceil(file.size / 1024)} KB</span>
+              <button type="button" onClick={() => setFile(null)} className="rounded p-0.5 text-ink-muted hover:text-clay-600" aria-label="Remove attachment">
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+          ) : (
             <button
               type="button"
-              onClick={onClose}
-              disabled={isSubmitting}
-              className="px-4 py-2 text-xs font-semibold text-slate-600 hover:text-slate-800 transition"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isSubmitting}
-              className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition disabled:opacity-50"
-            >
-              {isSubmitting ? (
-                <>
-                  <span className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                  Analyzing with AI & Submitting...
-                </>
-              ) : (
-                <>
-                  <Send className="w-3.5 h-3.5" />
-                  Submit Support Ticket
-                </>
+              onClick={() => fileInput.current?.click()}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragging(true);
+              }}
+              onDragLeave={() => setDragging(false)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragging(false);
+                pickFile(e.dataTransfer.files?.[0]);
+              }}
+              className={cn(
+                'flex w-full items-center justify-center gap-2 rounded-lg border border-dashed px-3 py-5 text-[13px] text-ink-muted transition',
+                dragging ? 'border-leaf-500 bg-leaf-50 text-leaf-700' : 'border-line-strong hover:border-ink-faint hover:bg-paper'
               )}
+            >
+              <Paperclip className="h-4 w-4" />
+              Drop a file or <span className="font-medium text-ink">browse</span>
+              <span className="text-ink-faint">· PNG, JPG, PDF up to 5 MB</span>
             </button>
-          </div>
-        </form>
-      </div>
-    </div>
+          )}
+          <input ref={fileInput} type="file" accept={ACCEPTED.join(',')} className="hidden" onChange={(e) => pickFile(e.target.files?.[0])} />
+        </Field>
+      </form>
+    </Modal>
   );
 }
 
+function Counter({ value, max }) {
+  const near = value.length > max * 0.9;
+  return <span className={cn('num text-[11px]', near ? 'text-clay-600' : 'text-ink-faint')}>{value.length}/{max}</span>;
+}

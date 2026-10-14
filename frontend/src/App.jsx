@@ -1,159 +1,78 @@
-import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Outlet, Route, Routes } from 'react-router-dom';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { SocketProvider } from './context/SocketContext';
-import Navbar from './components/Navbar';
+import { ToastProvider } from './context/ToastContext';
+import AppShell from './components/AppShell';
+import { LogoMark } from './components/Logo';
 
-// Pages
 import Login from './pages/Login';
-import AuthorDashboard from './pages/author/AuthorDashboard';
+import AuthorOverview from './pages/author/Overview';
 import MyBooks from './pages/author/MyBooks';
 import MyTickets from './pages/author/MyTickets';
-import TicketDetailAuthor from './pages/author/TicketDetailAuthor';
-
-import AdminDashboard from './pages/admin/AdminDashboard';
+import AuthorTicket from './pages/author/TicketThread';
 import TicketQueue from './pages/admin/TicketQueue';
-import TicketDetailAdmin from './pages/admin/TicketDetailAdmin';
-import AuthorsDirectory from './pages/admin/AuthorsDirectory';
+import TicketWorkspace from './pages/admin/TicketWorkspace';
+import Insights from './pages/admin/Insights';
+import Authors from './pages/admin/Authors';
 
-// Protected Route Component
-const ProtectedRoute = ({ children, requireAdmin = false }) => {
-  const { user, loading, isAdmin } = useAuth();
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen bg-slate-50">
-        <div className="flex flex-col items-center gap-2">
-          <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-slate-400 font-medium">Verifying session...</p>
-        </div>
-      </div>
-    );
-  }
-
-  if (!user) {
-    return <Navigate to="/login" replace />;
-  }
-
-  if (requireAdmin && !isAdmin) {
-    return <Navigate to="/" replace />;
-  }
-
-  return children;
-};
-
-// Layout with Navbar
-const Layout = ({ children }) => {
+function Splash() {
   return (
-    <div className="min-h-screen bg-slate-50 flex flex-col font-sans">
-      <Navbar />
-      <main className="flex-1 pb-12">{children}</main>
-      <footer className="py-4 border-t border-slate-200 text-center text-xs text-slate-400">
-        BookLeaf Publishing Support & AI Operations Portal • Full-Stack Developer Position
-      </footer>
+    <div className="flex min-h-screen items-center justify-center">
+      <LogoMark className="h-10 w-10 animate-pulse" />
     </div>
-  );
-};
-
-export default function App() {
-  return (
-    <AuthProvider>
-      <SocketProvider>
-        <BrowserRouter>
-          <Routes>
-            {/* Public Login Route */}
-            <Route path="/login" element={<Login />} />
-
-            {/* Author Portal Routes */}
-            <Route
-              path="/"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <AuthorDashboard />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/books"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <MyBooks />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/tickets"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <MyTickets />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/tickets/:id"
-              element={
-                <ProtectedRoute>
-                  <Layout>
-                    <TicketDetailAuthor />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Admin Portal Routes */}
-            <Route
-              path="/admin/dashboard"
-              element={
-                <ProtectedRoute requireAdmin={true}>
-                  <Layout>
-                    <AdminDashboard />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/tickets"
-              element={
-                <ProtectedRoute requireAdmin={true}>
-                  <Layout>
-                    <TicketQueue />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/tickets/:id"
-              element={
-                <ProtectedRoute requireAdmin={true}>
-                  <Layout>
-                    <TicketDetailAdmin />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-            <Route
-              path="/admin/authors"
-              element={
-                <ProtectedRoute requireAdmin={true}>
-                  <Layout>
-                    <AuthorsDirectory />
-                  </Layout>
-                </ProtectedRoute>
-              }
-            />
-
-            {/* Fallback */}
-            <Route path="*" element={<Navigate to="/" replace />} />
-          </Routes>
-        </BrowserRouter>
-      </SocketProvider>
-    </AuthProvider>
   );
 }
 
+// Route guard: signed-in users only, optionally restricted to one role.
+function RequireRole({ role }) {
+  const { user, loading, token } = useAuth();
+  if (loading || (token && !user)) return <Splash />;
+  if (!user) return <Navigate to="/login" replace />;
+  if (role && user.role !== role) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />;
+  return <Outlet />;
+}
+
+function GuestOnly() {
+  const { user, loading } = useAuth();
+  if (loading) return <Splash />;
+  if (user) return <Navigate to={user.role === 'admin' ? '/admin' : '/'} replace />;
+  return <Outlet />;
+}
+
+export default function App() {
+  return (
+    <BrowserRouter>
+      <ToastProvider>
+        <AuthProvider>
+          <SocketProvider>
+            <Routes>
+              <Route element={<GuestOnly />}>
+                <Route path="/login" element={<Login />} />
+              </Route>
+
+              <Route element={<RequireRole role="author" />}>
+                <Route element={<AppShell />}>
+                  <Route index element={<AuthorOverview />} />
+                  <Route path="books" element={<MyBooks />} />
+                  <Route path="tickets" element={<MyTickets />} />
+                  <Route path="tickets/:id" element={<AuthorTicket />} />
+                </Route>
+              </Route>
+
+              <Route path="admin" element={<RequireRole role="admin" />}>
+                <Route element={<AppShell />}>
+                  <Route index element={<TicketQueue />} />
+                  <Route path="tickets/:id" element={<TicketWorkspace />} />
+                  <Route path="insights" element={<Insights />} />
+                  <Route path="authors" element={<Authors />} />
+                </Route>
+              </Route>
+
+              <Route path="*" element={<Navigate to="/" replace />} />
+            </Routes>
+          </SocketProvider>
+        </AuthProvider>
+      </ToastProvider>
+    </BrowserRouter>
+  );
+}

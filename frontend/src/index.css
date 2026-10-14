@@ -3,47 +3,70 @@
 @tailwind utilities;
 
 @layer base {
+  html {
+    -webkit-tap-highlight-color: transparent;
+  }
   body {
-    @apply bg-slate-50 text-slate-800 antialiased selection:bg-emerald-500 selection:text-white;
-    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+    @apply bg-paper font-sans text-[14px] leading-relaxed text-ink antialiased;
+    font-feature-settings: 'ss01', 'cv11';
+  }
+  h1,
+  h2,
+  h3 {
+    @apply text-ink;
+  }
+  ::selection {
+    @apply bg-leaf-200 text-ink;
+  }
+  :focus-visible {
+    @apply outline-none ring-2 ring-leaf-500/40 ring-offset-2 ring-offset-paper;
   }
 }
 
-/* Animations */
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
+@layer components {
+  .font-display {
+    @apply font-serif tracking-[-0.01em];
+    font-variation-settings: 'opsz' 72;
+    font-variant-numeric: lining-nums;
   }
-  to {
-    opacity: 1;
-    transform: translateY(0);
+  /* Fraunces only ships old-style figures, so numbers use Geist for clean, aligned digits. */
+  .num {
+    @apply font-sans tracking-[-0.02em];
+    font-variant-numeric: tabular-nums;
+  }
+  .eyebrow {
+    @apply text-[11px] font-medium uppercase tracking-[0.08em] text-ink-muted;
+  }
+  .card {
+    @apply rounded-xl border border-line bg-white shadow-card;
+  }
+  .input {
+    @apply w-full rounded-lg border border-line-strong bg-white px-3 py-2 text-[14px] text-ink placeholder:text-ink-faint transition;
+    @apply hover:border-ink-faint focus:border-leaf-500 focus:outline-none focus:ring-4 focus:ring-leaf-500/10;
+  }
+  .input-invalid {
+    @apply border-clay-500 focus:border-clay-500 focus:ring-clay-500/10;
+  }
+  .skeleton {
+    @apply rounded-md bg-[linear-gradient(90deg,#efebe4_0%,#f7f4ef_50%,#efebe4_100%)] bg-[length:200%_100%] animate-shimmer;
+  }
+  .link {
+    @apply font-medium text-leaf-600 underline-offset-4 hover:text-leaf-700 hover:underline;
   }
 }
 
-.animate-fade-in {
-  animation: fadeIn 0.25s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #d4cdc1 transparent;
 }
 
-/* Custom scrollbars */
-::-webkit-scrollbar {
-  width: 6px;
-  height: 6px;
-}
-::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 4px;
-}
-::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-/* Glassmorphism utility */
-.glass-panel {
-  background: rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(12px);
-  border: 1px solid rgba(226, 232, 240, 0.8);
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 1ms !important;
+  }
 }

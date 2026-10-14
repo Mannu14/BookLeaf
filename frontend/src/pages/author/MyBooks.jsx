@@ -1,263 +1,190 @@
-import React, { useState, useEffect } from 'react';
-import api from '../../services/api';
+import { useEffect, useState } from 'react';
+import { BookOpen, MessageSquarePlus } from 'lucide-react';
+import { api } from '../../lib/api';
+import { date, inr, number } from '../../lib/format';
+import { PAYOUT_THRESHOLD, PRODUCTION_STAGES } from '../../lib/constants';
+import { Button, Card, EmptyState, PageHeader, Skeleton } from '../../components/ui';
+import { BookStatusBadge } from '../../components/badges';
+import BookSpine from '../../components/BookSpine';
 import NewTicketModal from './NewTicketModal';
-import {
-  BookOpen,
-  Calendar,
-  DollarSign,
-  Tag,
-  ShoppingBag,
-  ExternalLink,
-  PlusCircle,
-  HelpCircle,
-  CheckCircle2,
-  Clock,
-} from 'lucide-react';
+import { cn } from '../../lib/cn';
 
 export default function MyBooks() {
-  const [books, setBooks] = useState([]);
-  const [summary, setSummary] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [selectedBookForTicket, setSelectedBookForTicket] = useState(null);
-  const [isTicketModalOpen, setIsTicketModalOpen] = useState(false);
+  const [books, setBooks] = useState(null);
+  const [meta, setMeta] = useState(null);
+  const [error, setError] = useState('');
+  const [ticketFor, setTicketFor] = useState(undefined); // undefined = closed, null = general, id = book
 
   useEffect(() => {
-    loadBooks();
+    api
+      .get('/books')
+      .then((res) => {
+        setBooks(res.data.data);
+        setMeta(res.data.meta);
+      })
+      .catch((err) => setError(err.message));
   }, []);
 
-  const loadBooks = async () => {
-    setLoading(true);
-    try {
-      const res = await api.get('/books/my');
-      setBooks(res.data.data || []);
-      setSummary(res.data.summary || {});
-    } catch (err) {
-      console.error('Failed to load books:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
+  return (
+    <>
+      <PageHeader
+        eyebrow="Catalogue"
+        title="My books"
+        description={meta ? `${meta.published} live, ${meta.in_production} in production. Figures update after each quarterly royalty run.` : ' '}
+        actions={
+          <Button variant="secondary" icon={MessageSquarePlus} onClick={() => setTicketFor(null)}>
+            Ask about a book
+          </Button>
+        }
+      />
 
-  const handleOpenTicketForBook = (book) => {
-    setSelectedBookForTicket(book._id);
-    setIsTicketModalOpen(true);
-  };
+      {error && <Card className="p-5 text-clay-700">{error}</Card>}
 
-  const formatINR = (val) => (val ?? 0).toLocaleString('en-IN');
-
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="flex flex-col items-center gap-3">
-          <div className="w-8 h-8 border-3 border-emerald-600 border-t-transparent rounded-full animate-spin" />
-          <p className="text-xs text-slate-500 font-medium">Loading your book catalog...</p>
+      {!books && !error && (
+        <div className="space-y-4">
+          <Skeleton className="h-56 rounded-xl" />
+          <Skeleton className="h-56 rounded-xl" />
         </div>
+      )}
+
+      {books?.length === 0 && (
+        <Card>
+          <EmptyState icon={BookOpen} title="No books yet" description="Once your manuscript is received it will appear here with its production status." />
+        </Card>
+      )}
+
+      <div className="space-y-5">
+        {books?.map((book, i) => (
+          <BookCard key={book._id} book={book} style={{ animationDelay: `${i * 60}ms` }} onAsk={() => setTicketFor(book._id)} />
+        ))}
       </div>
-    );
-  }
+
+      <NewTicketModal open={ticketFor !== undefined} onClose={() => setTicketFor(undefined)} books={books || []} defaultBookId={ticketFor} />
+    </>
+  );
+}
+
+function BookCard({ book, onAsk, style }) {
+  const live = book.is_published;
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <h1 className="text-2xl font-black text-slate-900 tracking-tight">My Books & Catalog</h1>
-          <p className="text-xs text-slate-500 mt-1">
-            Track publication statuses, distribution channels, and line-item royalty earnings.
-          </p>
-        </div>
+    <Card className="animate-fade-up overflow-hidden" style={style}>
+      <div className="flex flex-col gap-5 p-5 sm:flex-row sm:p-6">
+        <BookSpine title={book.title} live={live} size="lg" />
 
-        <button
-          onClick={() => {
-            setSelectedBookForTicket(null);
-            setIsTicketModalOpen(true);
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition self-start sm:self-auto"
-        >
-          <PlusCircle className="w-4 h-4" />
-          Submit a Query
-        </button>
-      </div>
-
-      {/* Books Grid */}
-      <div className="space-y-6">
-        {books.map((book) => {
-          const isInProduction = book.status.startsWith('In Production');
-          const isPublished = book.status === 'Published & Live';
-
-          return (
-            <div
-              key={book.book_id}
-              className="bg-white rounded-2xl border border-slate-200/80 shadow-xs hover:shadow-md transition overflow-hidden"
-            >
-              {/* Card Top Banner */}
-              <div className="p-6 border-b border-slate-100 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-slate-50/50">
-                <div className="flex items-start gap-4">
-                  <div
-                    className={`w-14 h-20 rounded-xl flex flex-col items-center justify-center font-bold text-xs shrink-0 shadow-sm border ${
-                      isInProduction
-                        ? 'bg-amber-100 text-amber-900 border-amber-200'
-                        : 'bg-emerald-100 text-emerald-900 border-emerald-200'
-                    }`}
-                  >
-                    <BookOpen className="w-6 h-6 mb-1" />
-                    <span className="text-[9px] uppercase font-mono">{book.book_id}</span>
-                  </div>
-
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2.5">
-                      <h2 className="text-lg font-extrabold text-slate-900">{book.title}</h2>
-                      <span
-                        className={`text-xs font-bold px-2.5 py-0.5 rounded-full border ${
-                          isInProduction
-                            ? 'bg-amber-50 text-amber-700 border-amber-300'
-                            : 'bg-emerald-50 text-emerald-700 border-emerald-300'
-                        }`}
-                      >
-                        {book.status}
-                      </span>
-                    </div>
-
-                    <div className="text-xs text-slate-500 mt-1 flex flex-wrap gap-x-4 gap-y-1">
-                      <span>
-                        <strong className="text-slate-700">ISBN:</strong>{' '}
-                        {book.isbn ? (
-                          <code className="font-mono bg-slate-100 px-1 py-0.5 rounded text-slate-800">
-                            {book.isbn}
-                          </code>
-                        ) : (
-                          <span className="italic text-slate-400">Assigned during production</span>
-                        )}
-                      </span>
-                      <span>
-                        <strong className="text-slate-700">Genre:</strong> {book.genre}
-                      </span>
-                      <span>
-                        <strong className="text-slate-700">Published:</strong>{' '}
-                        {book.publication_date
-                          ? new Date(book.publication_date).toLocaleDateString('en-IN', {
-                              day: 'numeric',
-                              month: 'short',
-                              year: 'numeric',
-                            })
-                          : 'Pending Release'}
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleOpenTicketForBook(book)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl border border-slate-300 bg-white hover:bg-slate-50 text-slate-700 text-xs font-semibold shadow-2xs transition"
-                  >
-                    <HelpCircle className="w-3.5 h-3.5 text-slate-500" />
-                    Query this Book
-                  </button>
-                </div>
-              </div>
-
-              {/* Card Body: Financials & Distribution */}
-              <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-                {/* Financial Summary */}
-                <div className="space-y-1">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Pricing & Royalty Rate
-                  </div>
-                  <div className="text-base font-bold text-slate-800">
-                    {book.mrp ? `MRP ₹${book.mrp}` : 'MRP Not Fixed'}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    Author Share: {book.author_royalty_per_copy ? `₹${book.author_royalty_per_copy}/copy` : 'Calculated on net profit'}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Sales Volume
-                  </div>
-                  <div className="text-base font-black text-slate-900">
-                    {formatINR(book.total_copies_sold)} copies
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    {book.total_copies_sold === 0 ? 'No sales recorded yet' : 'Verified net marketplace sales'}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Royalty Balance
-                  </div>
-                  <div className="text-base font-black text-amber-600">
-                    Pending: ₹{formatINR(book.royalty_pending)}
-                  </div>
-                  <div className="text-xs text-slate-500">
-                    Earned: ₹{formatINR(book.total_royalty_earned)} • Paid: ₹{formatINR(book.royalty_paid)}
-                  </div>
-                </div>
-
-                <div className="space-y-1">
-                  <div className="text-xs font-bold uppercase tracking-wider text-slate-400">
-                    Last Payout Date
-                  </div>
-                  <div className="text-sm font-semibold text-slate-800">
-                    {book.last_royalty_payout_date
-                      ? new Date(book.last_royalty_payout_date).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          year: 'numeric',
-                        })
-                      : 'No payouts disbursed yet'}
-                  </div>
-                  <div className="text-xs text-slate-400">
-                    Print Partner: {book.print_partner || 'In-House'}
-                  </div>
-                </div>
-              </div>
-
-              {/* Retail Distribution Channels */}
-              <div className="px-6 py-3.5 bg-slate-50 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3 text-xs">
-                <div className="flex items-center gap-2">
-                  <span className="font-semibold text-slate-600">Retail Channels:</span>
-                  {book.available_on && book.available_on.length > 0 ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {book.available_on.map((channel) => (
-                        <span
-                          key={channel}
-                          className="bg-white border border-slate-200 px-2 py-0.5 rounded-md font-medium text-slate-700 shadow-2xs"
-                        >
-                          {channel}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    <span className="italic text-slate-400">
-                      {isInProduction ? 'Distribution channels activated after live printing' : 'Offline / In-House'}
-                    </span>
-                  )}
-                </div>
-
-                {isPublished && (
-                  <span className="text-[11px] text-emerald-700 font-semibold flex items-center gap-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    Marketplace Feeds Active
-                  </span>
-                )}
-              </div>
+        <div className="min-w-0 flex-1">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <h2 className="font-display text-[22px] leading-tight">{book.title}</h2>
+              <p className="mt-1 text-[13px] text-ink-muted">
+                {book.genre} · <span className="font-mono text-[12px]">{book.book_id}</span>
+              </p>
             </div>
-          );
-        })}
+            <div className="flex items-center gap-2">
+              <BookStatusBadge status={book.status} />
+              <Button size="sm" variant="ghost" onClick={onAsk}>
+                Ask about this book
+              </Button>
+            </div>
+          </div>
+
+          <dl className="mt-5 grid grid-cols-2 gap-x-6 gap-y-4 text-[13px] sm:grid-cols-4">
+            <Detail label="ISBN" value={book.isbn ? <span className="font-mono text-[12px]">{book.isbn}</span> : 'Assigned during production'} />
+            <Detail label="Published" value={book.publication_date ? date(book.publication_date) : 'Not yet'} />
+            <Detail label="MRP" value={book.mrp != null ? inr(book.mrp) : 'Set before printing'} />
+            <Detail label="Print partner" value={book.print_partner || '—'} />
+          </dl>
+        </div>
       </div>
 
-      {/* New Ticket Modal */}
-      <NewTicketModal
-        isOpen={isTicketModalOpen}
-        onClose={() => setIsTicketModalOpen(false)}
-        books={books}
-        initialBookId={selectedBookForTicket}
-        onTicketCreated={() => loadBooks()}
-      />
+      {live ? (
+        <>
+          <div className="grid grid-cols-2 border-t border-line bg-paper/50 sm:grid-cols-5">
+            <Figure label="Copies sold" value={number(book.total_copies_sold)} />
+            <Figure label="Royalty / copy" value={inr(book.author_royalty_per_copy)} />
+            <Figure label="Total earned" value={inr(book.total_royalty_earned)} />
+            <Figure label="Paid" value={inr(book.royalty_paid)} />
+            <Figure
+              label="Pending"
+              value={inr(book.royalty_pending)}
+              tone={book.royalty_pending > 0 ? 'text-ochre-600' : ''}
+              note={
+                book.royalty_pending === 0
+                  ? 'All paid'
+                  : book.royalty_pending < PAYOUT_THRESHOLD
+                    ? 'Below ₹1,000, rolls over'
+                    : null
+              }
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-line px-5 py-3 text-[13px] sm:px-6">
+            <span className="text-ink-muted">
+              Last payout: <span className="text-ink">{book.last_royalty_payout_date ? date(book.last_royalty_payout_date) : 'No payout yet'}</span>
+            </span>
+            <span className="flex flex-wrap items-center gap-1.5">
+              <span className="text-ink-muted">Available on</span>
+              {book.available_on.map((c) => (
+                <span key={c} className="rounded border border-line bg-white px-1.5 py-px text-[12px]">
+                  {c}
+                </span>
+              ))}
+            </span>
+          </div>
+        </>
+      ) : (
+        <ProductionTrack status={book.status} />
+      )}
+    </Card>
+  );
+}
+
+function Detail({ label, value }) {
+  return (
+    <div>
+      <dt className="eyebrow">{label}</dt>
+      <dd className="mt-1 text-ink">{value}</dd>
     </div>
   );
 }
 
+function Figure({ label, value, tone, note }) {
+  return (
+    <div className="border-line px-5 py-4 last:col-span-2 sm:px-6 sm:last:col-span-1 sm:[&:not(:last-child)]:border-r">
+      <p className="eyebrow">{label}</p>
+      <p className={cn('num mt-1.5 font-display text-[20px]', tone)}>{value}</p>
+      {note && <p className="mt-0.5 text-[12px] text-ink-muted">{note}</p>}
+    </div>
+  );
+}
+
+// Books in production show where they are in the pipeline instead of empty royalty numbers.
+function ProductionTrack({ status }) {
+  const stage = status.replace(/^In Production - /, '');
+  const current = Math.max(0, PRODUCTION_STAGES.indexOf(stage));
+
+  return (
+    <div className="border-t border-line bg-paper/50 px-5 py-5 sm:px-6">
+      <div className="flex items-baseline justify-between gap-4">
+        <p className="text-[13px]">
+          Currently in <strong className="font-semibold">{stage}</strong>
+        </p>
+        <p className="text-[12px] text-ink-muted">Royalties start once the book is live</p>
+      </div>
+      <ol className="mt-4 grid grid-cols-9 gap-1">
+        {PRODUCTION_STAGES.map((s, i) => (
+          <li key={s} className="group relative">
+            <div className={cn('h-1.5 rounded-full', i < current ? 'bg-leaf-500' : i === current ? 'bg-ochre-500' : 'bg-line-strong')} />
+            <span
+              className={cn(
+                'mt-2 hidden text-[11px] leading-tight lg:block',
+                i === current ? 'font-medium text-ink' : 'text-ink-faint'
+              )}
+            >
+              {s}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </div>
+  );
+}

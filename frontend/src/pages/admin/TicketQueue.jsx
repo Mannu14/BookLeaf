@@ -1,320 +1,261 @@
-import React, { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
-import api from '../../services/api';
-import { useSocket } from '../../context/SocketContext';
-import StatusBadge from '../../components/StatusBadge';
-import PriorityBadge from '../../components/PriorityBadge';
-import CategoryBadge from '../../components/CategoryBadge';
-import {
-  Layers,
-  Search,
-  Filter,
-  ArrowUpDown,
-  Clock,
-  AlertCircle,
-  User,
-  Sparkles,
-  ArrowRight,
-  ShieldAlert,
-  CheckCircle2,
-} from 'lucide-react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Inbox, Search, X } from 'lucide-react';
+import { api } from '../../lib/api';
+import { useSocketEvent } from '../../context/SocketContext';
+import { useToast } from '../../context/ToastContext';
+import { ACTIVE_STATUSES, CATEGORIES, PRIORITIES, SLA_HOURS, STATUSES } from '../../lib/constants';
+import { ageHours, dateTime, shortAge } from '../../lib/format';
+import { Avatar, Button, Card, EmptyState, Input, PageHeader, Select, Skeleton, Tabs } from '../../components/ui';
+import { CategoryBadge, PriorityBadge, StatusBadge } from '../../components/badges';
+import { cn } from '../../lib/cn';
+
+const FILTER_KEYS = ['status', 'category', 'priority', 'assignee', 'from', 'to', 'search', 'sort', 'page'];
+
+const PRIORITY_BAR = { Critical: 'bg-clay-600', High: 'bg-clay-500/60', Medium: 'bg-ochre-500/60', Low: 'bg-line-strong' };
 
 export default function TicketQueue() {
-  const [tickets, setTickets] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const navigate = useNavigate();
+  const toast = useToast();
+  const [params, setParams] = useSearchParams();
+  const [result, setResult] = useState(null);
+  const [stats, setStats] = useState(null);
+  const [error, setError] = useState('');
+  const [search, setSearch] = useState(params.get('search') || '');
+  const [flash, setFlash] = useState(new Set());
 
-  // Filters
-  const [statusFilter, setStatusFilter] = useState('All');
-  const [categoryFilter, setCategoryFilter] = useState('All');
-  const [priorityFilter, setPriorityFilter] = useState('All');
-  const [search, setSearch] = useState('');
-  const [sortBy, setSortBy] = useState('urgency');
+  const filters = Object.fromEntries(FILTER_KEYS.map((k) => [k, params.get(k) || '']));
+  const query = params.toString();
 
-  const { socket } = useSocket();
+  const setFilter = (key, value) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set(key, value);
+    else next.delete(key);
+    if (key !== 'page') next.delete('page');
+    setParams(next, { replace: true });
+  };
 
-  useEffect(() => {
-    loadQueue();
-  }, [statusFilter, categoryFilter, priorityFilter, sortBy]);
-
-  // Real-time synchronization
-  useEffect(() => {
-    if (!socket) return;
-
-    const handleTicketCreated = (newTicket) => {
-      setTickets((prev) => [newTicket, ...prev]);
-    };
-
-    const handleTicketUpdated = (updated) => {
-      setTickets((prev) => prev.map((t) => (t._id === updated._id ? { ...t, ...updated } : t)));
-    };
-
-    socket.on('ticket_created', handleTicketCreated);
-    socket.on('ticket_updated', handleTicketUpdated);
-
-    return () => {
-      socket.off('ticket_created', handleTicketCreated);
-      socket.off('ticket_updated', handleTicketUpdated);
-    };
-  }, [socket]);
-
-  const loadQueue = async () => {
+  const load = useCallback(async () => {
     try {
-      const res = await api.get('/admin/tickets', {
-        params: {
-          status: statusFilter,
-          category: categoryFilter,
-          priority: priorityFilter,
-          search: search.trim() || undefined,
-          sortBy,
-        },
-      });
-      setTickets(res.data.data || []);
+      const [list, s] = await Promise.all([api.get(`/admin/tickets?${query}`), api.get('/admin/stats')]);
+      setResult(list.data);
+      setStats(s.data.data);
+      setError('');
     } catch (err) {
-      console.error('Failed to load tickets queue:', err);
-    } finally {
-      setLoading(false);
+      setError(err.message);
     }
-  };
+  }, [query]);
 
-  const handleSearchSubmit = (e) => {
-    e.preventDefault();
-    loadQueue();
-  };
+  useEffect(() => {
+    load();
+  }, [load]);
 
-  const isOlderThan48h = (createdDate) => {
-    const ageMs = Date.now() - new Date(createdDate).getTime();
-    return ageMs > 48 * 60 * 60 * 1000;
-  };
+  // Debounced search box -> URL.
+  useEffect(() => {
+    const t = setTimeout(() => search !== filters.search && setFilter('search', search.trim()), 300);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [search]);
 
-  const statusOptions = ['All', 'Open', 'In Progress', 'Resolved', 'Closed'];
-  const categoryOptions = [
-    'All',
-    'Royalty & Payments',
-    'ISBN & Metadata Issues',
-    'Printing & Quality',
-    'Distribution & Availability',
-    'Book Status & Production Updates',
-    'General Inquiry',
-  ];
-  const priorityOptions = ['All', 'Critical', 'High', 'Medium', 'Low'];
+  // Live updates: refetch (server owns sort + filter) and highlight the row.
+  const refreshTimer = useRef(null);
+  const scheduleRefresh = (id) => {
+    setFlash((s) => new Set(s).add(id));
+    clearTimeout(refreshTimer.current);
+    refreshTimer.current = setTimeout(load, 250);
+  };
+  useSocketEvent('ticket:created', (t) => {
+    toast.info(`New ticket from ${t.author_name}`, `${t.priority} · ${t.subject}`);
+    scheduleRefresh(t._id);
+  });
+  useSocketEvent('ticket:updated', (t) => scheduleRefresh(t._id));
+  useSocketEvent('message:created', ({ ticketId, message }) => message.sender_role === 'author' && scheduleRefresh(ticketId));
+
+  const hasFilters = FILTER_KEYS.some((k) => k !== 'sort' && k !== 'page' && filters[k]);
+  const statusCounts = stats && {
+    '': stats.tickets.total,
+    Open: stats.tickets.open,
+    'In Progress': stats.tickets.in_progress,
+    Resolved: stats.tickets.resolved,
+    Closed: stats.tickets.closed,
+  };
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6 animate-fade-in">
-      {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-2xl font-black text-slate-900 tracking-tight">Admin Ticket Queue</h1>
-            <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse" title="Live WebSocket Queue" />
-          </div>
-          <p className="text-xs text-slate-500 mt-1">
-            Manage incoming author queries with AI classification, priority scoring, and smart drafting.
-          </p>
-        </div>
+    <>
+      <PageHeader
+        eyebrow="Support operations"
+        title="Ticket queue"
+        description="Active tickets first, then by priority, oldest at the top. AI triage sets category and priority on arrival; you can override both."
+      />
 
-        <div className="text-xs text-slate-500 bg-white border border-slate-200 px-3 py-1.5 rounded-xl shadow-2xs">
-          Queue Size: <strong className="text-slate-900 font-bold">{tickets.length}</strong> active tickets
-        </div>
-      </div>
-
-      {/* Filter & Search Bar */}
-      <div className="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs space-y-3">
-        {/* Top line: Search and Sort */}
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-          <form onSubmit={handleSearchSubmit} className="relative flex-1 max-w-md">
-            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-            <input
-              type="text"
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search by author, subject, ticket ID, or book..."
-              className="w-full pl-9 pr-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl focus:bg-white focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            />
-          </form>
-
-          <div className="flex items-center gap-2">
-            <ArrowUpDown className="w-3.5 h-3.5 text-slate-400" />
-            <span className="text-xs font-semibold text-slate-600">Sort:</span>
-            <select
-              value={sortBy}
-              onChange={(e) => setSortBy(e.target.value)}
-              className="text-xs font-semibold text-slate-800 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              <option value="urgency">⚡ Urgent & Oldest Unresolved (Default)</option>
-              <option value="newest">🕒 Newest First</option>
-              <option value="oldest">📅 Oldest First</option>
-            </select>
-          </div>
-        </div>
-
-        {/* Filter Chips & Dropdowns */}
-        <div className="pt-2 border-t border-slate-100 flex flex-wrap items-center justify-between gap-3">
-          {/* Status Tabs */}
-          <div className="flex flex-wrap items-center gap-1">
-            {statusOptions.map((status) => (
-              <button
-                key={status}
-                onClick={() => setStatusFilter(status)}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition ${
-                  statusFilter === status
-                    ? 'bg-indigo-600 text-white shadow-xs'
-                    : 'text-slate-600 hover:bg-slate-100'
-                }`}
-              >
-                {status}
-              </button>
-            ))}
-          </div>
-
-          {/* Category & Priority Dropdowns */}
-          <div className="flex flex-wrap items-center gap-2">
-            <select
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {categoryOptions.map((cat) => (
-                <option key={cat} value={cat}>
-                  {cat === 'All' ? 'All Categories' : cat}
-                </option>
-              ))}
-            </select>
-
-            <select
-              value={priorityFilter}
-              onChange={(e) => setPriorityFilter(e.target.value)}
-              className="text-xs text-slate-700 bg-slate-50 border border-slate-200 rounded-lg px-2.5 py-1 focus:outline-none focus:ring-2 focus:ring-indigo-500"
-            >
-              {priorityOptions.map((p) => (
-                <option key={p} value={p}>
-                  {p === 'All' ? 'All Priorities' : `${p} Priority`}
-                </option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {/* Ticket List Table / Cards */}
-      {loading ? (
-        <div className="flex items-center justify-center min-h-[40vh]">
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-7 h-7 border-3 border-indigo-600 border-t-transparent rounded-full animate-spin" />
-            <p className="text-xs text-slate-400">Loading incoming queue...</p>
-          </div>
-        </div>
-      ) : tickets.length === 0 ? (
-        <div className="bg-white rounded-2xl border border-slate-200 p-12 text-center space-y-3">
-          <CheckCircle2 className="w-12 h-12 text-emerald-500 mx-auto" />
-          <h3 className="text-sm font-bold text-slate-800">Queue is Clear!</h3>
-          <p className="text-xs text-slate-500 max-w-sm mx-auto">
-            No tickets match your active filter criteria.
-          </p>
-        </div>
-      ) : (
-        <div className="space-y-3">
-          {tickets.map((ticket) => {
-            const isCritical = ticket.priority === 'Critical';
-            const isSLAAlert =
-              isOlderThan48h(ticket.created_at) &&
-              (ticket.status === 'Open' || ticket.status === 'In Progress');
-
-            return (
-              <Link
-                key={ticket._id}
-                to={`/admin/tickets/${ticket._id}`}
-                className={`block bg-white p-5 rounded-2xl border transition group relative overflow-hidden ${
-                  isCritical
-                    ? 'border-red-300 ring-1 ring-red-500/20 shadow-sm hover:border-red-400'
-                    : 'border-slate-200/80 hover:border-indigo-300 hover:shadow-md'
-                }`}
-              >
-                {/* Critical top accent strip */}
-                {isCritical && (
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-red-500 animate-pulse" />
-                )}
-
-                <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
-                  {/* Left: Metadata & Subject */}
-                  <div className="space-y-2 min-w-0">
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-mono text-xs font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded border border-slate-200">
-                        {ticket.ticket_number}
-                      </span>
-                      <StatusBadge status={ticket.status} />
-                      <PriorityBadge priority={ticket.priority} />
-                      <CategoryBadge category={ticket.category} />
-
-                      {ticket.ai_priority?.overridden && (
-                        <span className="text-[10px] font-semibold bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.2 rounded">
-                          Priority Overridden
-                        </span>
-                      )}
-
-                      {isSLAAlert && (
-                        <span className="text-[10px] font-bold bg-red-100 text-red-800 px-2 py-0.5 rounded-full flex items-center gap-1 animate-pulse">
-                          <AlertCircle className="w-3 h-3" /> SLA Risk (&gt;48h)
-                        </span>
-                      )}
-                    </div>
-
-                    <div>
-                      <h3 className="text-sm sm:text-base font-bold text-slate-900 group-hover:text-indigo-600 transition">
-                        {ticket.subject}
-                      </h3>
-                      <p className="text-xs text-slate-500 line-clamp-2 mt-0.5">
-                        {ticket.description}
-                      </p>
-                    </div>
-
-                    {/* Author & Book Context line */}
-                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-slate-500 pt-1">
-                      <span>
-                        Author: <strong className="text-slate-800">{ticket.author_name}</strong> ({ticket.author_id})
-                      </span>
-                      <span>•</span>
-                      <span>
-                        Book: <strong className="text-slate-800">{ticket.book_title}</strong>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Right: Assigned + Date + Action */}
-                  <div className="flex items-center justify-between lg:justify-end gap-6 shrink-0 pt-3 lg:pt-0 border-t lg:border-t-0 border-slate-100">
-                    <div className="text-left lg:text-right text-xs space-y-1">
-                      <div className="flex items-center lg:justify-end gap-1.5">
-                        <User className="w-3.5 h-3.5 text-slate-400" />
-                        <span className="text-slate-600">
-                          {ticket.assigned_to_name ? (
-                            <strong className="text-slate-800">{ticket.assigned_to_name}</strong>
-                          ) : (
-                            <span className="italic text-slate-400">Unassigned</span>
-                          )}
-                        </span>
-                      </div>
-
-                      <div className="text-[11px] text-slate-400 flex items-center lg:justify-end gap-1">
-                        <Clock className="w-3 h-3" />
-                        {new Date(ticket.created_at).toLocaleDateString('en-IN', {
-                          day: 'numeric',
-                          month: 'short',
-                          hour: '2-digit',
-                          minute: '2-digit',
-                        })}
-                      </div>
-                    </div>
-
-                    <div className="w-8 h-8 rounded-full bg-slate-100 group-hover:bg-indigo-100 group-hover:text-indigo-600 text-slate-400 flex items-center justify-center transition">
-                      <ArrowRight className="w-4 h-4" />
-                    </div>
-                  </div>
-                </div>
-              </Link>
-            );
-          })}
+      {stats && (
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
+          <QueueChip label="Open" value={stats.tickets.open} onClick={() => setFilter('status', 'Open')} />
+          <QueueChip label="In progress" value={stats.tickets.in_progress} onClick={() => setFilter('status', 'In Progress')} />
+          <QueueChip label="Critical, active" value={stats.tickets.active_by_priority.Critical || 0} tone="clay" onClick={() => setFilter('priority', 'Critical')} />
+          <QueueChip label={`Older than ${SLA_HOURS}h`} value={stats.tickets.sla_breached} tone={stats.tickets.sla_breached ? 'ochre' : undefined} onClick={() => setFilter('sort', 'oldest')} />
         </div>
       )}
-    </div>
+
+      <Card className="overflow-hidden">
+        <div className="space-y-3 border-b border-line p-4">
+          <div className="overflow-x-auto">
+            <Tabs
+              value={filters.status}
+              onChange={(v) => setFilter('status', v)}
+              options={[{ value: '', label: 'All' }, ...STATUSES.map((s) => ({ value: s, label: s }))].map((o) => ({ ...o, count: statusCounts?.[o.value] }))}
+            />
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="relative min-w-[220px] flex-1">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-ink-faint" />
+              <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search subject, author, book or ticket #" className="h-8 pl-9 text-[13px]" />
+            </div>
+            <Select size="sm" value={filters.category} onChange={(e) => setFilter('category', e.target.value)} aria-label="Category">
+              <option value="">All categories</option>
+              {CATEGORIES.map((c) => (
+                <option key={c}>{c}</option>
+              ))}
+            </Select>
+            <Select size="sm" value={filters.priority} onChange={(e) => setFilter('priority', e.target.value)} aria-label="Priority">
+              <option value="">Any priority</option>
+              {PRIORITIES.map((p) => (
+                <option key={p}>{p}</option>
+              ))}
+            </Select>
+            <Select size="sm" value={filters.assignee} onChange={(e) => setFilter('assignee', e.target.value)} aria-label="Assignee">
+              <option value="">Anyone</option>
+              <option value="me">Assigned to me</option>
+              <option value="unassigned">Unassigned</option>
+            </Select>
+            <div className="flex items-center gap-1 text-[13px] text-ink-muted">
+              <Input type="date" value={filters.from} max={filters.to || undefined} onChange={(e) => setFilter('from', e.target.value)} className="h-8 w-[138px] text-[13px]" aria-label="From date" />
+              <span>to</span>
+              <Input type="date" value={filters.to} min={filters.from || undefined} onChange={(e) => setFilter('to', e.target.value)} className="h-8 w-[138px] text-[13px]" aria-label="To date" />
+            </div>
+            <Select size="sm" value={filters.sort} onChange={(e) => setFilter('sort', e.target.value)} aria-label="Sort">
+              <option value="">Most urgent</option>
+              <option value="oldest">Oldest first</option>
+              <option value="newest">Newest first</option>
+            </Select>
+            {hasFilters && (
+              <Button
+                size="sm"
+                variant="ghost"
+                icon={X}
+                onClick={() => {
+                  setSearch('');
+                  setParams({}, { replace: true });
+                }}
+              >
+                Clear
+              </Button>
+            )}
+          </div>
+        </div>
+
+        {error ? (
+          <p className="p-6 text-clay-700">{error}</p>
+        ) : !result ? (
+          <div className="space-y-px p-2">
+            {Array.from({ length: 6 }, (_, i) => (
+              <Skeleton key={i} className="h-[60px]" />
+            ))}
+          </div>
+        ) : result.data.length === 0 ? (
+          <EmptyState icon={Inbox} title={hasFilters ? 'No tickets match these filters' : 'The queue is empty'} description={hasFilters ? 'Try widening the date range or clearing filters.' : 'New author queries will appear here in real time.'} />
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[860px] text-left text-[13px]">
+              <thead>
+                <tr className="border-b border-line text-ink-muted">
+                  <th className="w-1 p-0" />
+                  <th className="px-4 py-2.5 font-medium">Ticket</th>
+                  <th className="px-3 py-2.5 font-medium">Category</th>
+                  <th className="px-3 py-2.5 font-medium">Priority</th>
+                  <th className="px-3 py-2.5 font-medium">Status</th>
+                  <th className="px-3 py-2.5 font-medium">Assignee</th>
+                  <th className="px-4 py-2.5 text-right font-medium">Age</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-line">
+                {result.data.map((t) => {
+                  const active = ACTIVE_STATUSES.includes(t.status);
+                  const breached = active && ageHours(t.created_at) > SLA_HOURS;
+                  return (
+                    <tr
+                      key={t._id}
+                      onClick={() => navigate(`/admin/tickets/${t._id}`)}
+                      onAnimationEnd={() => setFlash((s) => { const n = new Set(s); n.delete(t._id); return n; })}
+                      className={cn('group cursor-pointer transition hover:bg-paper', !active && 'text-ink-muted', flash.has(t._id) && 'animate-flash')}
+                    >
+                      <td className="p-0">
+                        <span className={cn('block h-[60px] w-1', active ? PRIORITY_BAR[t.priority] : 'bg-transparent')} />
+                      </td>
+                      <td className="max-w-[420px] px-4 py-3">
+                        <p className={cn('truncate font-medium', active ? 'text-ink' : 'text-ink-soft')}>{t.subject}</p>
+                        <p className="mt-0.5 truncate text-[12px] text-ink-muted">
+                          <span className="font-mono">{t.ticket_number}</span> · {t.author_name} · {t.book_title}
+                        </p>
+                      </td>
+                      <td className="px-3 py-3">
+                        <CategoryBadge category={t.category} short />
+                        {t.ai_category?.overridden && <span className="ml-1 text-[11px] text-ink-faint" title="Category set by an admin">edited</span>}
+                      </td>
+                      <td className="px-3 py-3">
+                        <PriorityBadge priority={t.priority} />
+                      </td>
+                      <td className="px-3 py-3">
+                        <StatusBadge status={t.status} />
+                      </td>
+                      <td className="px-3 py-3">
+                        {t.assigned_to_name ? (
+                          <span className="flex items-center gap-2">
+                            <Avatar name={t.assigned_to_name} size="sm" tone="ink" className="h-6 w-6 text-[10px]" />
+                            <span className="truncate">{t.assigned_to_name.split(' ')[0]}</span>
+                          </span>
+                        ) : (
+                          <span className="text-ink-faint">Unassigned</span>
+                        )}
+                      </td>
+                      <td className="px-4 py-3 text-right" title={dateTime(t.created_at)}>
+                        <span className={cn('num', breached ? 'font-medium text-clay-600' : 'text-ink-muted')}>{shortAge(t.created_at)}</span>
+                        {breached && <p className="text-[11px] text-clay-600">over SLA</p>}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+
+        {result && result.meta.pages > 1 && (
+          <div className="flex items-center justify-between border-t border-line px-4 py-3 text-[13px] text-ink-muted">
+            <span>
+              Page {result.meta.page} of {result.meta.pages} · {result.meta.total} tickets
+            </span>
+            <div className="flex gap-2">
+              <Button size="sm" variant="secondary" disabled={result.meta.page <= 1} onClick={() => setFilter('page', String(result.meta.page - 1))}>
+                Previous
+              </Button>
+              <Button size="sm" variant="secondary" disabled={result.meta.page >= result.meta.pages} onClick={() => setFilter('page', String(result.meta.page + 1))}>
+                Next
+              </Button>
+            </div>
+          </div>
+        )}
+      </Card>
+    </>
   );
 }
 
+function QueueChip({ label, value, tone, onClick }) {
+  const tones = { clay: 'text-clay-600', ochre: 'text-ochre-600' };
+  return (
+    <button onClick={onClick} className="card group px-4 py-3 text-left transition hover:-translate-y-px hover:shadow-lift">
+      <p className="text-[12px] text-ink-muted">{label}</p>
+      <p className={cn('num mt-1 font-display text-[24px] leading-none', value ? tones[tone] : 'text-ink')}>{value}</p>
+    </button>
+  );
+}
