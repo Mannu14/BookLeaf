@@ -7,6 +7,8 @@ A support desk for BookLeaf Publishing with two sides:
 
 Stack: React 18 + Vite + Tailwind, Node 22 + Express, MongoDB (Mongoose), Socket.IO, Gemini or OpenAI.
 
+**Live demo: https://bookleaf-ug29.onrender.com** (admin: `admin@bookleaf.pub` / `admin123`, authors: any dataset email / `author123`). Hosted on Render's free tier, so the first request after a period of inactivity can take up to a minute while the service wakes up. The live instance runs without an LLM key, so triage and drafts use the rule-based fallback; see [Configuration](#configuration-and-api-keys) to enable Gemini or OpenAI.
+
 ---
 
 ## Contents
