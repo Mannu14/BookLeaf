@@ -42,3 +42,4 @@ export default function PriorityBadge({ priority = 'Medium', showIcon = true, si
     </span>
   );
 }
+

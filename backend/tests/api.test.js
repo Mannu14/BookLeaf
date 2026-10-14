@@ -105,7 +105,7 @@ async function runTests() {
       'PATCH',
       `/api/admin/tickets/${createdTicket._id}`,
       {
-        priority: 'High',
+        priority: 'Critical',
         assignToSelf: true,
       },
       adminToken
@@ -162,3 +162,4 @@ server.listen(5000, async () => {
   await mongoose.connect('mongodb://127.0.0.1:27017/bookleaf');
   runTests();
 });
+

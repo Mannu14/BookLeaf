@@ -25,3 +25,4 @@ router.get('/stats', getAdminStats);
 router.get('/authors', getAllAuthors);
 
 module.exports = router;
+

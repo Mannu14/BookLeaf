@@ -11,3 +11,4 @@ router.get('/demo-users', getDemoUsers);
 router.get('/me', authenticate, getMe);
 
 module.exports = router;
+

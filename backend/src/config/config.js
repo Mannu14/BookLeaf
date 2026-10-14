@@ -15,3 +15,4 @@ module.exports = {
   geminiModel: process.env.GEMINI_MODEL || 'gemini-1.5-flash',
   openaiModel: process.env.OPENAI_MODEL || 'gpt-4o-mini',
 };
+

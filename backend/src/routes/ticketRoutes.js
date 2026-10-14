@@ -17,3 +17,4 @@ router.get('/:id', getTicketById);
 router.post('/:id/messages', addAuthorMessage);
 
 module.exports = router;
+

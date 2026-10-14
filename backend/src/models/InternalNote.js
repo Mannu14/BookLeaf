@@ -28,3 +28,4 @@ const InternalNoteSchema = new mongoose.Schema(
 );
 
 module.exports = mongoose.model('InternalNote', InternalNoteSchema);
+

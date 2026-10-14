@@ -126,3 +126,4 @@ const TicketSchema = new mongoose.Schema(
 TicketSchema.index({ status: 1, priority: 1, created_at: -1 });
 
 module.exports = mongoose.model('Ticket', TicketSchema);
+

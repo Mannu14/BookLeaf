@@ -55,3 +55,4 @@ export default function CategoryBadge({ category = 'General Inquiry', showIcon =
     </span>
   );
 }
+

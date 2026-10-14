@@ -64,3 +64,4 @@ AuthorSchema.methods.comparePassword = async function (candidatePassword) {
 };
 
 module.exports = mongoose.model('Author', AuthorSchema);
+
