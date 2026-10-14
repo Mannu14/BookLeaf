@@ -1,244 +1,313 @@
-# 🍃 BookLeaf Publishing — Author Support & Communication Portal
+# BookLeaf Author Support Portal
 
-> **Full-Stack Developer Technical Assessment (Assignment 1 of 2)**  
-> An AI-assisted support operations portal and author dashboard designed for **BookLeaf Publishing** to scale author communications across 22,000+ catalog titles with high empathy, speed, and accuracy.
+A support desk for BookLeaf Publishing with two sides:
 
----
+- **Author portal**: authors sign in, see their books and royalty position, raise queries and follow replies live.
+- **Admin portal**: the operations team works a single queue where every ticket arrives already categorised and prioritised by an LLM, opens a ticket to find a reply drafted from BookLeaf's knowledge base, edits it, and sends it.
 
-## 📌 Executive Summary & Architecture Overview
-
-BookLeaf processes 1,200+ books monthly with an active catalog of 22,000+ titles across India and the US. Authors frequently query about royalties, print quality, distribution stock feeds, and production stages. 
-
-This platform bridges the gap between authors and operations with two synchronized interfaces:
-1. **Author Portal (`/`)**: Real-time dashboard displaying book catalog statuses, quarterly royalty earnings (80/20 net profit split, ₹1,000 threshold status), ticket submission with optional attachments, and live ticket messaging.
-2. **Admin Operations Portal (`/admin/tickets`)**: Live queue ordered by urgency (Critical > High > Oldest Unresolved), with **AI Auto-Classification** (6 categories), **AI Priority Scoring** (Critical/High/Medium/Low), **AI Knowledge-Base Response Drafting**, admin overrides, and private internal notes.
-
-```
-┌─────────────────────────────────────────────────────────────────────────────┐
-│                            BOOKLEAF SYSTEM ARCHITECTURE                     │
-└─────────────────────────────────────────────────────────────────────────────┘
-
-  Author Portal (React + Vite)             Admin Operations Portal (React + Vite)
-  [My Books | Royalties | Tickets]          [Queue | AI Overrides | Notes | SLA]
-               ▲                                         ▲
-               │                WebSocket (Socket.IO)    │
-               └─────────────────────────┬───────────────┘
-                                         │
-                             ┌───────────▼───────────┐
-                             │  Express REST API      │
-                             │  JWT Auth & RBAC      │
-                             └───────────┬───────────┘
-                                         │
-               ┌─────────────────────────┼─────────────────────────┐
-               │                         │                         │
-     ┌─────────▼────────┐     ┌──────────▼──────────┐    ┌─────────▼─────────┐
-     │ MongoDB Database │     │ Multi-Provider AI   │    │ BookLeaf Rule     │
-     │ 10 Authors       │     │ • Google Gemini     │    │ & Policy Engine   │
-     │ 18 Books         │     │ • OpenAI            │    │ (Offline Fallback)│
-     │ Tickets & Notes  │     │ • Prompt Engineering│    │ 100% Zero-Fail    │
-     └──────────────────┘     └─────────────────────┘    └───────────────────┘
-```
+Stack: React 18 + Vite + Tailwind, Node 22 + Express, MongoDB (Mongoose), Socket.IO, Gemini or OpenAI.
 
 ---
 
-## ⚡ Quick Test Login Credentials
+## Contents
 
-The database comes pre-seeded with the exact **10 authors and 18 books** from `FULLSTACK-SAMPLEDATA.json`, plus the default administrator.
+1. [Quick start](#quick-start)
+2. [Test accounts](#test-accounts)
+3. [Configuration and API keys](#configuration-and-api-keys)
+4. [Architecture](#architecture)
+5. [AI integration](#ai-integration)
+6. [API reference](#api-reference)
+7. [Real-time events](#real-time-events)
+8. [Testing](#testing)
+9. [Deployment](#deployment)
+10. [Assumptions, limitations and next steps](#assumptions-limitations-and-next-steps)
 
-> **Tip**: You can use the **"⚡ Switch User"** button in the top navigation bar to switch between Admin and any of the 10 authors with **1 click**.
-
-| Role | Name | Email | Password | Pre-seeded Context / Edge Cases |
-| :--- | :--- | :--- | :--- | :--- |
-| **Admin** | Aditi Verma (Support Lead) | `admin@bookleaf.pub` | `admin123` | Full access to Ticket Queue, AI Overrides, Internal Notes, Analytics |
-| **Author** | Rohit Kapoor | `rohit.kapoor@email.com` | `author123` | 2 books (*Startup Sutra*, *Code & Karma*); ₹13,024 pending royalty |
-| **Author** | Priya Sharma | `priya.sharma@email.com` | `author123` | 2 books (*Whispers of the Ganges*, *The Saffron Diaries*); ₹3,570 pending |
-| **Author** | Sneha Kulkarni | `sneha.kulkarni@email.com` | `author123` | 3 books, including *Midnight in Mysore* (**In Production - Cover Design**) |
-| **Author** | Kavita Deshmukh | `kavita.deshmukh@email.com` | `author123` | *Raising Roots* (**In Production - Typesetting**); ₹850 pending (< ₹1,000 threshold) |
-| **Author** | Ananya Reddy | `ananya.reddy@email.com` | `author123` | *Between Two Temples*; 67 copies sold, ₹2,546 pending, zero paid |
-| **Author** | Arjun Malhotra | `arjun.malhotra@email.com` | `author123` | *Turban Tales*; Active ISBN marketplace mismatch ticket |
-| **Author** | Vikram Joshi | `vikram.joshi@email.com` | `author123` | *Debugging Life*, *The Last Monsoon*; In-house print partner |
-| **Author** | Meera Nair | `meera.nair@email.com` | `author123` | *Cardamom & Chaos*, *Letters from Lakshadweep*; Repro India / In-House |
-| **Author** | Farhan Sheikh | `farhan.sheikh@email.com` | `author123` | *Ghazal of the Forgotten*; Epitome Books partner; zero pending |
-| **Author** | Diya Chatterjee | `diya.chatterjee@email.com` | `author123` | *Durga’s Daughters*, *Howrah Nights*; 657 copies sold |
+See also [WRITEUP.md](WRITEUP.md) for the one-page summary of approach and trade-offs.
 
 ---
 
-## 🚀 Getting Started (Local Setup in 2 Minutes)
+## Quick start
 
-### Prerequisites
-- **Node.js** (v18+ or v20+)
-- **MongoDB** (Local instance on `mongodb://127.0.0.1:27017` or MongoDB Atlas URI)
+Requirements: **Node.js 22+**. MongoDB is optional for local runs.
 
-### Step 1: Clone & Install Dependencies
 ```bash
-# Clone the repository
-git clone <private-repo-url>
+git clone https://github.com/Mannu14/BookLeaf.git
 cd BookLeaf
 
-# Install root dependencies
-npm install
+npm run install:all                     # root, backend and frontend dependencies
+cp backend/.env.example backend/.env    # then add an AI key if you have one (optional)
 
-# Install backend dependencies
-cd backend && npm install
-
-# Install frontend dependencies
-cd ../frontend && npm install
-cd ..
+npm run dev                             # API on :5000, web app on :5173
 ```
 
-### Step 2: Configure Environment Variables
-Inside `backend/.env` (a ready template is provided at `backend/.env.example`):
+Open http://localhost:5173.
+
+On first start the server seeds the sample dataset (10 authors, 18 books from `bookleaf_sample_data.json`), two admin users and eight realistic tickets. If no MongoDB is running at `MONGODB_URI`, it starts an in-memory MongoDB instead, so the app works with zero setup. In that mode data resets on every restart.
+
+To use a persistent database, start MongoDB (or put an Atlas URI in `MONGODB_URI`) and run:
+
+```bash
+npm run seed      # wipes and reseeds the configured database
+```
+
+Production-style single process (API serves the built frontend):
+
+```bash
+npm run build && npm start              # http://localhost:5000
+```
+
+## Test accounts
+
+| Role | Email | Password | Useful for |
+| --- | --- | --- | --- |
+| Admin | `admin@bookleaf.pub` | `admin123` | Ticket queue, AI triage, drafting, notes |
+| Admin | `karan@bookleaf.pub` | `admin123` | Reassigning tickets between team members |
+| Author | `rohit.kapoor@email.com` | `author123` | Two live books, ₹13,024 pending, overdue payout ticket |
+| Author | `sneha.kulkarni@email.com` | `author123` | Three books, one in Cover Design |
+| Author | `kavita.deshmukh@email.com` | `author123` | Book in Typesetting, ₹850 pending (below the ₹1,000 threshold) |
+| Author | `ananya.reddy@email.com` | `author123` | Never been paid since publication |
+| Author | `farhan.sheikh@email.com` | `author123` | Fully paid, nothing pending |
+
+Every author in the dataset can sign in with `author123`. The login page lists all accounts for one-click sign-in (controlled by `DEMO_MODE`).
+
+A good way to see the real-time flow: sign in as an author in one browser and as the admin in a private window. Raise a ticket as the author, watch it appear in the admin queue, reply from the admin side, and the reply shows up on the author's open ticket without a refresh.
+
+## Configuration and API keys
+
+All configuration lives in `backend/.env` (template: [`backend/.env.example`](backend/.env.example)). The `.env` file is git-ignored.
+
+**To enable the LLM, add one key to `backend/.env`:**
+
 ```env
-PORT=5000
-MONGODB_URI=mongodb://127.0.0.1:27017/bookleaf
-JWT_SECRET=bookleaf_secret_jwt_key_2026_dev_prod
-JWT_EXPIRES_IN=7d
-CLIENT_URL=http://localhost:5173
-
-# AI Configuration (supports 'gemini', 'openai', or 'auto')
-AI_PROVIDER=auto
-GEMINI_API_KEY=
-OPENAI_API_KEY=
-GEMINI_MODEL=gemini-1.5-flash
-OPENAI_MODEL=gpt-4o-mini
+GEMINI_API_KEY=your-key-here     # https://aistudio.google.com/apikey
+# or
+OPENAI_API_KEY=your-key-here
 ```
 
-*(Note: If you do not have an active API key right now, the system operates seamlessly using the built-in **BookLeaf Knowledge Base Rule Engine**, providing 100% functional classification, priority scoring, and policy-accurate draft responses!)*
+With `AI_PROVIDER=auto` (default) the server uses Gemini if its key is set, otherwise OpenAI. Without any key everything still works using the rule-based fallback described below; the admin UI labels those results as "Rule-based (AI unavailable)".
 
-### Step 3: Seed the Database
-Populate the database with the 10 authors, 18 books, admin user, and sample tickets:
-```bash
-npm run seed
-# or: cd backend && npm run seed
+| Variable | Default | Notes |
+| --- | --- | --- |
+| `MONGODB_URI` | `mongodb://127.0.0.1:27017/bookleaf` | |
+| `ALLOW_IN_MEMORY_DB` | `true` outside production | Fall back to an in-memory DB if Mongo is unreachable |
+| `AUTO_SEED` | `true` | Seed sample data when the database is empty |
+| `JWT_SECRET` | dev-only value | **Required** when `NODE_ENV=production`; server refuses to start without it |
+| `CLIENT_URL` | `http://localhost:5173` | Comma-separated allowed origins (CORS and Socket.IO) |
+| `AI_PROVIDER` | `auto` | `auto`, `gemini`, `openai`, `none` |
+| `GEMINI_MODEL` / `OPENAI_MODEL` | `gemini-2.5-flash` / `gpt-4o-mini` | |
+| `AI_TIMEOUT_MS` | `12000` | Hard timeout per model call |
+| `AI_BREAKER_THRESHOLD` / `AI_BREAKER_COOLDOWN_MS` | `3` / `60000` | Circuit breaker |
+
+API keys are read only on the server. The frontend never sees them and never calls an AI provider directly.
+
+## Architecture
+
+```
+frontend/ (React SPA)                       backend/ (Express + Socket.IO)
+  pages/author/*  pages/admin/*               routes/ -> validators -> controllers
+  context/ Auth, Socket, Toast                     controllers are thin; logic lives in services/
+  lib/api.js (axios, error normalising)       services/ticketService   ticket lifecycle
+          |                                    services/statsService    aggregations
+          |  REST  /api/*   (JWT bearer)       ai/aiService             triage + drafting, never throws
+          |  WebSocket (JWT in handshake)      ai/llmClient             timeout, retry, circuit breaker
+          v                                    ai/providers/{gemini,openai}
+       server.js -> app.js                     ai/prompts, knowledgeBase, facts, parse, fallback
+                                               realtime/socket          server-assigned rooms
+                                               models/ User, Book, Ticket, Message, InternalNote, Counter
 ```
 
-### Step 4: Run the Development Servers
-Start both Backend and Frontend concurrently with one command:
+Key decisions:
+
+- **Thin controllers, service layer.** Controllers translate HTTP to service calls. `ticketService` owns the ticket lifecycle (create, reply, reopen, resolve, assign, override), so the same rules apply whichever route triggers them.
+- **One `User` collection with a `role`.** Authors and staff share login and auth middleware; `role` drives access. Books reference authors by the dataset's `author_id`.
+- **Messages and internal notes are separate collections.** A note can never leak through a message query, and author endpoints never touch the notes collection.
+- **Authors get a sanitised ticket view.** `serializers.toAuthorTicket` whitelists fields: authors do not see internal priority, AI reasoning, drafts or assignee. The same serializer is used for socket payloads sent to authors.
+- **Ranks stored on the ticket.** `status_rank` and `priority_rank` are kept in sync on save, so "active first, most urgent, oldest" is a plain indexed MongoDB sort that works with pagination.
+- **Atomic ticket numbers.** `BL-1001`, `BL-1002`, ... come from a counter document updated with `$inc`, which is safe under concurrent requests (unlike `countDocuments() + 1`).
+- **Consistent error shape.** Every error is `{ success: false, error: { code, message, details? } }`. Validation errors list each failing field, which the UI shows inline.
+- **Auth.** bcrypt-hashed passwords (never selected by default), JWT bearer tokens, rate-limited login, identical error for unknown email and wrong password, helmet headers, 100 kb JSON body limit, regex-escaped search.
+
+### Data model
+
+| Collection | Purpose | Notable fields |
+| --- | --- | --- |
+| `users` | Authors and admins | `author_id`, `role`, hashed `password` |
+| `books` | Sample dataset as-is | Nullable `mrp`, `isbn`, dates for books in production |
+| `tickets` | Support tickets | `category`, `priority`, `status` + ranks; `ai_category` / `ai_priority` (suggestion, confidence, reasoning, override info); `ai_triage_meta` (provider, model, tokens, latency, fallback reason); `ai_draft` (text, sections used, `stale`); `first_response_at`, `unread_for_author` |
+| `messages` | Public thread | `sender_role`, `ai_assisted`, `ai_draft_edited` |
+| `internalnotes` | Staff-only notes | |
+| `counters` | Ticket number sequence | |
+
+## AI integration
+
+Three jobs: classify into one of six categories, assign a priority, and draft a reply. All three are produced by `ai/aiService.js`.
+
+### Flow
+
+1. **Author submits a ticket.** One model call returns category and priority together as JSON (`temperature: 0`, JSON mode). The ticket is saved with the result. If anything goes wrong the rule-based fallback fills in, so ticket creation never fails because of AI.
+2. **Admin opens the ticket.** If it has no draft yet, or the author has replied since the draft was written (`ai_draft.stale`), the UI requests a draft. The draft is stored on the ticket and reused; admins can regenerate on demand.
+3. **Admin edits and sends.** Nothing is sent to an author without a human pressing Send. The reply records whether it came from the draft and whether it was edited.
+
+### Prompt design
+
+Prompts are in [`backend/src/ai/prompts.js`](backend/src/ai/prompts.js).
+
+- **Triage prompt** defines each category in one line, gives an explicit priority rubric (for example: wrong book under the author's ISBN is Critical, any ISBN error is at least High, bio updates are Low), and asks for strict JSON with confidence and a one-sentence reason for each decision.
+- **Draft prompt** is a static system prompt encoding BookLeaf's tone guidelines (acknowledge first, be specific, own mistakes, give timelines, end with a next step) plus hard rules: use only the supplied facts and policy, never invent amounts or dates, plain text, 90-200 words, fixed sign-off.
+- **Knowledge base as sections.** The KB from the brief is split into sections (royalty, ISBN, printing, distribution, production, metadata, company). A draft only includes the sections for its category, plus up to two more if the text clearly mentions them (a printing complaint that also mentions royalties gets both).
+- **Per-category handling guide.** The "expected response" column from the brief's sample table is included for the ticket's category only, which calibrates tone and content.
+- **Computed facts instead of model arithmetic.** The server calculates the next payout date (quarter end + 45 days), whether pending royalty clears the ₹1,000 threshold, and whether a payout is overdue. The model is handed these as `FACTS` and told to quote them. Replies like "your Q3 2026 royalties will be paid by 14 Nov 2026" are correct by construction rather than by luck.
+- **Prompt-injection hygiene.** Author text is wrapped in `<ticket>` / `<thread>` tags and both system prompts say to treat it as data.
+
+### Guardrails on output
+
+- Triage JSON is parsed defensively (code fences stripped, enums matched case-insensitively). An unknown category or priority is rejected and the fallback is used instead of storing bad data.
+- **Policy floors**: the KB says ISBN errors are high priority, so an ISBN ticket can never be stored below High even if the model says otherwise.
+- Drafts are cleaned of markdown and rejected if empty.
+
+### Failure handling
+
+`ai/llmClient.js` wraps every provider call:
+
+| Situation | Behaviour |
+| --- | --- |
+| No API key | Rule-based triage and template drafts; UI labels them as such |
+| Timeout (12 s default) | Call aborted, fallback used |
+| 429 or 5xx | One retry after 400 ms, then fallback |
+| Invalid / unparseable output | Fallback |
+| Repeated failures | After 3 consecutive failures the circuit opens for 60 s and calls go straight to the fallback, so an outage costs one slow request instead of one per ticket |
+
+The fallback (`ai/fallback.js`) uses weighted keyword signals for category, rules plus book facts for priority, and per-category reply templates filled with the author's real figures. It correctly handles every example in the brief and every seeded ticket (this is covered by tests). Tickets are always created, and admins can always write a reply manually.
+
+### Cost awareness
+
+- **One call for triage**, not separate classification and priority calls.
+- **Drafts are lazy.** No draft is generated at ticket creation. It is created the first time an admin opens the ticket and then cached. Tickets nobody opens cost one small triage call only. Concurrent requests for the same draft are de-duplicated in-process.
+- **Targeted context.** A typical draft prompt carries 1-2 KB sections (~150-300 tokens) instead of the whole KB, plus only the last 4 messages of the thread (each capped at 1,200 characters). Older messages are counted, not sent.
+- **Bounded outputs.** `maxOutputTokens` of 300 for triage, 700 for drafts; Gemini "thinking" is disabled because these tasks do not need it.
+- **Static system prompts** so providers can cache the shared prefix.
+- **Measured, not guessed.** Input/output tokens, latency, provider and model are stored on every ticket and draft, and shown in the admin UI. The Insights page reports how many tickets were triaged by the model vs. the fallback, the category/priority override rate (a live proxy for classification accuracy), and how many replies were sent from drafts unedited.
+
+### Model choice
+
+Default is **Gemini 2.5 Flash**, with **GPT-4o mini** supported through the same interface. Both are fast and inexpensive, which matters because triage sits on the request path of ticket creation and the volume is in the thousands per month. Both support a JSON output mode, which makes triage parsing reliable. The tasks (six-way classification, a 150-word grounded reply) do not need a frontier model; the quality comes from giving the model the right facts and policy. Supporting two providers behind one adapter also means an outage or pricing change at one vendor is a config change, not a code change.
+
+## API reference
+
+Base URL: `/api`. All endpoints except login, health and demo accounts require `Authorization: Bearer <token>`.
+
+Responses: `{ success: true, data, meta? }` or `{ success: false, error: { code, message, details? } }`.
+Status codes used: `200`, `201`, `400` (validation, with `details[]`), `401` (missing/invalid/expired token), `403` (wrong role or not your resource), `404`, `409`, `429` (login rate limit), `500`.
+
+### Auth
+
+| Method | Path | Access | Description |
+| --- | --- | --- | --- |
+| POST | `/auth/login` | Public, rate-limited | Body `{ email, password }`. Returns `{ token, user }`; authors also get a royalty `summary`. |
+| GET | `/auth/me` | Any signed-in user | Current user and summary. |
+| GET | `/auth/demo-accounts` | Public, only when `DEMO_MODE=true` | Names, emails and roles for the login page. No credentials. |
+| GET | `/health` | Public | Status and active AI provider. |
+
+### Books (authors)
+
+| Method | Path | Access | Description |
+| --- | --- | --- | --- |
+| GET | `/books` | Author | The author's books with all dataset fields. `meta` has totals (sold, earned, paid, pending, published, in production). |
+| GET | `/books/:id` | Owner author or admin | One book. Other authors get `403`. |
+
+### Tickets (authors)
+
+| Method | Path | Access | Description |
+| --- | --- | --- | --- |
+| GET | `/tickets?status=` | Author | Own tickets, most recently active first. |
+| POST | `/tickets` | Author | Body `{ book_id: "<id>" \| "general", subject (5-200), description (15-5000), attachment?: { original_name, mime_type, size_kb } }`. Runs AI triage, returns `201` with the author view of the ticket. The book must belong to the author. |
+| GET | `/tickets/:id` | Owner author | Ticket plus public messages. Marks unread replies as read. |
+| POST | `/tickets/:id/messages` | Owner author | Body `{ body }`. Reopens a resolved ticket and marks any existing draft as stale. Closed tickets return `400`. |
+
+### Admin
+
+| Method | Path | Description |
+| --- | --- | --- |
+| GET | `/admin/tickets` | Queue. Query: `status`, `category`, `priority`, `assignee=me\|unassigned`, `from`, `to` (YYYY-MM-DD), `search`, `sort=urgency\|newest\|oldest` (default urgency), `page`, `limit` (max 100). `meta` has pagination. |
+| GET | `/admin/tickets/:id` | Ticket with AI data, messages (with draft-usage flags), internal notes and author context (profile, totals, every book's royalty position, active ticket count). |
+| PATCH | `/admin/tickets/:id` | Any of `{ status, category, priority, assignee: "me" \| <adminId> \| null }`. Category/priority changes are recorded as overrides against the original AI suggestion; reverting to the AI's value clears the flag. |
+| POST | `/admin/tickets/:id/draft` | Generate (or regenerate) the AI reply draft. Returns the draft with sections used and token/latency metadata. |
+| POST | `/admin/tickets/:id/replies` | Body `{ body, resolve?, from_draft? }`. Sends a reply to the author, sets first-response time, moves Open to In Progress (or to Resolved if `resolve`), auto-assigns if unassigned. |
+| POST | `/admin/tickets/:id/notes` | Body `{ note }`. Internal note, never visible to authors. |
+| GET | `/admin/stats` | Queue counts, SLA breaches (active and older than 48 h), category and priority breakdowns, average first response, AI usage metrics, AI provider status. |
+| GET | `/admin/authors` | All authors with book, sales, royalty and ticket aggregates. |
+| GET | `/admin/team` | Admin users (for assignment). |
+
+Example:
+
 ```bash
-npm run dev
+TOKEN=$(curl -s localhost:5000/api/auth/login -H 'Content-Type: application/json' \
+  -d '{"email":"admin@bookleaf.pub","password":"admin123"}' | node -pe 'JSON.parse(fs.readFileSync(0)).data.token')
+
+curl -s "localhost:5000/api/admin/tickets?priority=Critical&status=Open" -H "Authorization: Bearer $TOKEN"
 ```
-- **Author & Admin Frontend**: [http://localhost:5173](http://localhost:5173)
-- **Backend REST API**: [http://localhost:5000](http://localhost:5000)
-- **API Health Check**: [http://localhost:5000/api/health](http://localhost:5000/api/health)
 
----
+## Real-time events
 
-## 🤖 AI Integration Strategy & Architecture
+Socket.IO, authenticated with the same JWT (`io(url, { auth: { token } })`). Unauthenticated connections are rejected. The **server** places each socket in a room based on the verified token: admins in `admins`, authors in `author:<author_id>`. Clients cannot choose rooms, so an author can only ever receive events about their own tickets, and admin-only data (internal notes, AI triage, drafts) is never sent to an author socket.
 
-The assignment places 25% evaluation weight on AI integration. Here is how our architecture addresses each specific requirement:
+| Event | Admins receive | Author receives |
+| --- | --- | --- |
+| `ticket:created` | Full ticket | Own ticket, author view |
+| `ticket:updated` | Full ticket | Own ticket, author view |
+| `message:created` | `{ ticketId, message }` incl. draft-usage flags | `{ ticketId, message }` for own tickets |
+| `note:created` | `{ ticketId, note }` | never |
+| `draft:ready` | `{ ticketId, draft }` | never |
 
-### 1. Model Choice & Multi-Provider Flexibility
-- **Google Gemini API (`gemini-1.5-flash`)**: High speed, rich context window, zero financial barriers on Google AI Studio free tier.
-- **OpenAI API (`gpt-4o-mini`)**: Low latency, deterministic structured JSON outputs.
-- **BookLeaf Policy & Rule Engine Fallback**: If external LLMs hit rate-limits (HTTP 429), timeouts, or network loss, tickets **never fail to create**. The fallback engine applies BookLeaf's exact calculation formulas, tone guidelines, and SLA timelines.
+## Testing
 
-### 2. Prompt Engineering & Knowledge Base Grounding
-Prompts are grounded in the official BookLeaf policies from pages 5–7 of the specification:
-- **Royalty 80/20 Net Profit**: Emphasizes `Net Profit = MRP - (Printing Cost + Marketplace Commission + Shipping)`.
-- **Quarterly Schedule & Threshold**: Explicitly references the 45-day post-quarter payout window and ₹1,000 rollover rule.
-- **ISBN Integrity**: Flags duplicate/mismatched ISBNs as Critical/High with a committed 48-hour production team resolution.
-- **Quality & Reprint Guarantee**: 100% free reprint upon photo verification of misprints/binding issues within 5–7 business days.
-- **Tone Guidelines**: Empathetic, acknowledges author frustration first, owns BookLeaf delays directly (no corporate deflection), and always ends with a clear next step.
-
-### 3. Cost Awareness & Token Consciousness
-- **Targeted Context Injection**: Rather than dumping the entire knowledge base into every request, `getTargetedKnowledgeContext()` evaluates ticket keywords (e.g. injects print defect policies only when print keywords appear; injects quarterly schedules only on payout queries).
-- **Concise Author Financial Context**: Only passes relevant book title, sold copies, earned, paid, and pending figures—avoiding bloated history payloads.
-
-### 4. Admin Override & Human-in-the-Loop
-- AI never sends automated replies directly to authors without human approval.
-- The Admin workspace presents the AI draft in an interactive editor where the admin can edit, regenerate, or type from scratch before sending.
-- Admins can override Category and Priority with 1 click; the system records `overridden: true`, `overridden_by: [Admin Name]`, and `overridden_at: [Timestamp]`.
-
----
-
-## 📡 REST API Documentation
-
-### Authentication & Profiles (`/api/auth`)
-- `POST /api/auth/login`: Authenticate author or admin with email/password; returns JWT token and user profile.
-- `GET /api/auth/me`: Validate JWT token and retrieve current user session.
-- `GET /api/auth/demo-users`: Retrieve list of pre-seeded test authors and admin for quick evaluator switching.
-
-### Book Catalog & Royalties (`/api/books`)
-- `GET /api/books/my`: Fetch all books belonging to the authenticated author, with aggregate metrics (copies sold, total earned, paid, pending).
-- `GET /api/books/:id`: Fetch specific book details (protected: authors can only view their own books).
-
-### Author Support Tickets (`/api/tickets`)
-- `POST /api/tickets`: Create a support query. Automatically executes AI Auto-Classification, Priority Scoring, and AI Reply Draft generation. Pushes real-time event to admin queue.
-- `GET /api/tickets/my`: Retrieve tickets submitted by the logged-in author (filterable by status and category).
-- `GET /api/tickets/:id`: Retrieve single ticket and its public conversation thread (internal notes excluded).
-- `POST /api/tickets/:id/messages`: Author sends a follow-up reply. Automatically reopens resolved tickets if needed.
-
-### Admin Operations (`/api/admin`) *(Restricted to role: 'admin')*
-- `GET /api/admin/tickets`: Fetch complete ticket queue across all authors. Supports sorting by `urgency` (Critical > High > Oldest Unresolved), `newest`, or `oldest`, and filtering by status, category, priority, and text search.
-- `GET /api/admin/tickets/:id`: Fetch ticket details, public message thread, private internal notes, and complete author financial rollup.
-- `PATCH /api/admin/tickets/:id`: Update ticket status, override AI category/priority, or assign ticket.
-- `POST /api/admin/tickets/:id/ai-draft`: Re-generate an updated AI response draft based on current conversation history.
-- `POST /api/admin/tickets/:id/replies`: Send admin response to author. Pushes message instantly via WebSocket.
-- `POST /api/admin/tickets/:id/notes`: Add private internal note (visible only to admins).
-- `GET /api/admin/stats`: Get dashboard KPIs (total tickets, open, in-progress, resolved, critical, SLA risks >48h, category distribution).
-- `GET /api/admin/authors`: Complete directory of all authors with aggregated book counts, sales, pending royalties, and ticket counts.
-
----
-
-## ⚡ Real-Time Architecture (WebSockets / Socket.IO)
-
-The platform utilizes Socket.IO for bidirectional, event-driven updates:
-- **`join_author_room (author_id)`**: Authors receive instant notifications when an admin replies or when their ticket status changes without needing to refresh.
-- **`join_admin_room`**: Operations team receives instant updates when new tickets are submitted by any author.
-- **`join_ticket (ticket_id)`**: Active viewers of a ticket participate in a live chat session with real-time typing and message dispatch.
-
----
-
-## 🧪 Automated Testing
-
-A comprehensive automated test suite verifies all critical paths:
 ```bash
-cd backend
 npm test
 ```
-The test suite covers:
-1. Health check endpoint
-2. Author authentication & credential validation
-3. Admin authentication & RBAC check
-4. Author catalog retrieval & royalty calculations
-5. AI auto-classification, priority scoring & draft generation on ticket creation
-6. Admin queue urgency sorting & filtering
-7. Admin priority override & auditing
-8. Private internal notes (verifying author privacy)
-9. Admin response dispatch & resolution workflow
-10. System stats & SLA risk calculations
 
----
+57 tests using Node's built-in test runner, Supertest and an in-memory MongoDB seeded with the real dataset. No network calls: the AI provider is replaced with a fake where needed.
 
-## 🚢 Live Deployment Guide
+| File | Covers |
+| --- | --- |
+| `auth.test.js` | Login, identical errors for wrong password vs unknown email, validation, malformed JSON, token checks, no password fields in any response |
+| `books.test.js` | Author sees only own books and correct totals, in-production books with null fields, cross-author `403`, admin access rules |
+| `tickets.test.js` | Full lifecycle: validation, foreign-book rejection, triage on create, author view hides internal fields, sequential numbers under concurrency, isolation between authors, on-demand draft grounded in real figures, admin reply with draft tracking, unread flag, stale draft on follow-up, reopen on reply, closed tickets |
+| `admin.test.js` | RBAC, urgency ordering, every filter including date range and regex-unsafe search, pagination, override tracking and reverting, assignment, notes never reaching authors, author context, stats, author directory |
+| `ai.test.js` | Output parsing and rejection, KB section selection, payout date maths, overdue rules, policy floors, prompt contents (facts present, irrelevant KB absent, long threads truncated, untrusted text fenced), fallback on every example from the brief, and provider behaviour: success path with token accounting, errors, invalid output, timeouts, retry on 429, circuit breaker |
+| `realtime.test.js` | Socket auth, replies delivered live to the right author only, sanitised author payloads, notes delivered to admins only |
 
-### Option A: Render / Railway (Backend) + Vercel (Frontend)
-1. **Backend**:
-   - Create Web Service on Render / Railway pointing to the `backend/` directory.
-   - Build Command: `npm install`
-   - Start Command: `npm start`
-   - Set environment variables (`MONGODB_URI`, `JWT_SECRET`, `CLIENT_URL`, `GEMINI_API_KEY`).
-2. **Frontend**:
-   - Create Project on Vercel pointing to the `frontend/` directory.
-   - Framework Preset: `Vite`
-   - Build Command: `npm run build`
-   - Output Directory: `dist`
-   - Environment Variable: `VITE_API_URL=https://your-backend-api.onrender.com/api`
+The UI flow (login, raise ticket, admin triage and reply, live update on the author's screen, follow-up, insights, mobile layout) was also checked end to end in a headless browser.
 
----
+## Deployment
 
-## 💡 Evaluation Criteria Self-Check
+The backend serves the built frontend, so the whole app deploys as one Node service.
 
-| Criterion | Weight | How It Is Handled In This Implementation |
-| :--- | :---: | :--- |
-| **AI Integration Quality** | 25% | Multi-provider architecture (Gemini + OpenAI), prompt engineering with targeted BookLeaf knowledge injection, accurate 6-category classification, multi-factor urgency priority scoring, and 100% resilient fallback engine. |
-| **Architecture & Code Quality** | 25% | Clean separation of concerns (Controllers, Services, Models, Routes, Middlewares). Modular React components, Tailwind styling, no monolithic spaghetti code. |
-| **API Design** | 15% | Standard RESTful resource patterns, JWT authentication, strict role-based access control, input validation, and descriptive HTTP status codes. |
-| **Functionality & Completeness** | 15% | All required features delivered: Author Portal (Books, Royalties, Tickets), Admin Portal (Queue, Filters, AI Overrides, Internal Notes, Real-time replies), and edge case handling (production books, zero sales, under-threshold royalties). |
-| **Product Thinking** | 10% | Thoughtful UI/UX, 1-click test user switcher for fast reviewer evaluation, SLA risk indicators (>48h warnings), and policy-grounded author communications. |
-| **Documentation & Communication** | 10% | Exhaustive README, architecture diagrams, API specs, test suites, and 1-page technical write-up (`WRITEUP.md`). |
+**Render (blueprint included):** New -> Blueprint -> select this repo. [`render.yaml`](render.yaml) builds the frontend, starts the API, and generates `JWT_SECRET`. Set:
 
----
+- `MONGODB_URI`: a MongoDB Atlas connection string (free tier is fine)
+- `CLIENT_URL`: the service URL, e.g. `https://bookleaf-support.onrender.com`
+- `GEMINI_API_KEY` or `OPENAI_API_KEY`
 
-*Authored for the BookLeaf Publishing Technical Assessment.*
+The database seeds itself on first boot. For a throwaway demo without Atlas, set `ALLOW_IN_MEMORY_DB=true` (data resets on every deploy/restart).
 
+**Any other host** (Railway, a VPS): `npm run install:all && npm run build && npm start` with the same environment variables. For a split deployment (static frontend on Vercel, API elsewhere), build the frontend with `VITE_API_URL=https://api.example.com/api` and `VITE_SOCKET_URL=https://api.example.com`, and add the frontend origin to `CLIENT_URL`.
+
+## Assumptions, limitations and next steps
+
+Assumptions:
+
+- Royalty figures in the dataset are the source of truth. The portal does not recompute royalties from sales.
+- "Overdue" means at least ₹1,000 pending with no payout for longer than one quarter plus the 45-day window. This drives priority and the wording of drafts.
+- Authors do not see a ticket's priority. It is an internal triage signal, and showing an author that their issue is "Low" is not a good experience.
+- Admin accounts are seeded; there is no sign-up or password reset flow, which the brief did not ask for.
+
+Known limitations:
+
+- **Attachments are metadata only.** The form validates type and size and stores name/type/size, but the file itself is not uploaded. Next step: presigned upload to S3/GCS and a virus scan before linking it to the ticket.
+- **AI calls run in the request.** Triage adds model latency (typically about a second) to ticket creation, bounded by the timeout. At higher volume this should move to a queue (BullMQ/Redis) with the ticket created immediately and triage applied asynchronously.
+- **Single instance.** Socket.IO rooms and the draft de-duplication map are in-process. Running several instances needs the Socket.IO Redis adapter and a shared lock.
+- **Keyword-based KB selection.** Fine for a seven-section KB. A larger KB (FAQs, past resolved tickets) would call for embeddings-based retrieval.
+- JWT is stored in `localStorage` for simplicity; an httpOnly cookie with CSRF protection is the safer production choice.
+- No email notifications; authors see replies in the portal only.
+
+With more time I would add: email notifications on reply, an evaluation set of real historical tickets to track triage accuracy per prompt version, SLA timers per priority (not a flat 48 h), canned responses, and an audit log of every status/assignment change.

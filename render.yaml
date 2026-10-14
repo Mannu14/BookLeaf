@@ -1,0 +1,27 @@
+# One web service serves the API, Socket.IO and the built React app.
+# Deploy: Render dashboard -> New -> Blueprint -> select this repo.
+services:
+  - type: web
+    name: bookleaf-support
+    runtime: node
+    plan: free
+    buildCommand: npm install --prefix backend && npm run build
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: JWT_SECRET
+        generateValue: true
+      - key: MONGODB_URI
+        sync: false # MongoDB Atlas connection string
+      - key: CLIENT_URL
+        sync: false # e.g. https://bookleaf-support.onrender.com
+      - key: AI_PROVIDER
+        value: auto
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: DEMO_MODE
+        value: "true"

@@ -1,21 +1,20 @@
 {
-  "name": "bookleaf-portal",
+  "name": "bookleaf-support-portal",
   "version": "1.0.0",
-  "description": "BookLeaf Author Support & Communication Portal with AI-Powered Assistance",
+  "private": true,
+  "description": "Author support and communication portal for BookLeaf Publishing",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
-    "install:all": "npm install && cd backend && npm install && cd ../frontend && npm install",
-    "seed": "cd backend && npm run seed",
-    "dev:backend": "cd backend && npm run dev",
-    "dev:frontend": "cd frontend && npm run dev",
-    "dev": "concurrently \"npm run dev:backend\" \"npm run dev:frontend\"",
-    "build": "cd frontend && npm run build",
-    "start": "cd backend && npm start"
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "dev": "concurrently -n api,web -c green,blue \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build": "npm install --prefix frontend --include=dev && npm run build --prefix frontend",
+    "start": "npm start --prefix backend",
+    "seed": "npm run seed --prefix backend",
+    "test": "npm test --prefix backend"
   },
   "devDependencies": {
     "concurrently": "^9.1.2"
-  },
-  "keywords": ["bookleaf", "publishing", "author-support", "ai-support", "ticket-management"],
-  "author": "BookLeaf Full-Stack Developer Submission",
-  "license": "ISC"
+  }
 }
-

@@ -1,35 +1,28 @@
-# 📄 Technical Approach & Architecture Write-Up
+# Write-up: BookLeaf Author Support Portal
 
-**Candidate:** Full-Stack Developer Position  
-**Assignment:** BookLeaf Publishing — Author Support & Communication Portal  
-**Date:** October 2026  
+## What I prioritised
 
----
+**1. AI that is useful to an ops team, and safe when it fails.** I treated the model as one component in a pipeline, not the product. Triage (category and priority) happens in a single JSON call when a ticket is created, so the queue is correctly ordered from the first second. Reply drafts are generated only when an admin opens a ticket, then cached, so we never pay for drafts nobody reads. Every model call goes through a client with a hard timeout, one retry on 429/5xx, and a circuit breaker; anything that fails or returns invalid output falls back to a rule-based triage and template that still uses the author's real numbers. A ticket is never lost because an API is down, and the admin can always write a reply manually.
 
-### 1. Approach & What Was Prioritized
+**2. Grounded, specific replies.** The brief's tone guidelines say "be specific: actual numbers, dates and statuses." LLMs are unreliable at exactly that, so the server computes the facts (next payout date from the quarterly calendar, whether pending royalty clears ₹1,000, whether a payout is overdue) and hands them to the model to quote. The knowledge base is split into sections and only the relevant ones go into each prompt, together with the brief's "expected response" guidance for that category. A policy floor keeps ISBN errors at High or above whatever the model says.
 
-When reviewing the assignment specification, three core realities shaped the design:
-1. **Communication Quality & Empathy at Scale**: BookLeaf processes 1,200+ monthly books across 22,000+ titles. Authors are creative partners with deep emotional investment in their work. The AI system had to produce responses that sound like experienced, empathetic BookLeaf publishing coordinators—not generic AI chatbots. Grounding prompts in BookLeaf’s actual 80/20 net profit formula, quarterly payout cycles, and reprint guarantees was my highest priority.
-2. **Operational Resilience (Zero-Crash AI Degradation)**: External LLM APIs can experience rate-limiting (HTTP 429), network latency spikes, or billing outages. A production support desk cannot halt when an external API falters. I architected a dual-layer AI strategy: live LLM integration (Google Gemini / OpenAI) backed by a deterministic, offline BookLeaf Knowledge Base Rule Engine. If an external call times out or lacks a key, ticket creation and classification succeed seamlessly without a single error.
-3. **Strict Data Isolation & Role Separation**: Authors must only ever see their own books and public correspondence. Admin internal notes and operational discussions must be securely quarantined from author responses. I implemented dedicated JWT middlewares, database-level query scopes, and distinct Socket.IO event channels.
+**3. Data isolation.** Authors must never see another author's data or anything internal. Ownership is enforced in the service layer, authors get a whitelisted ticket view (no internal priority, AI reasoning, drafts or notes), internal notes live in a separate collection, and Socket.IO rooms are assigned by the server from the JWT rather than requested by the client. The original version let any socket join the admin room; closing that was one of the first fixes.
 
----
+**4. Measurable AI.** Every ticket stores provider, model, tokens, latency and, if relevant, why it fell back. Admin overrides keep the original suggestion, and replies record whether they came from a draft and whether it was edited. The Insights page turns that into an override rate and draft-acceptance rate, which is how you would know whether a prompt change helped.
 
-### 2. Engineering Trade-offs & Decisions
+## Trade-offs
 
-- **Full-Stack Monorepo vs. Microservices**: For a 5-day assignment with 10 authors and 18 books, a microservices architecture would introduce needless operational overhead. I chose a modular, monolithic structure (`backend/` + `frontend/`) with clean domain separation (Controllers, Services, Models, Routes). This provides instant local startup with minimal configuration while maintaining clear boundaries for future containerization.
-- **Dynamic In-Memory Token Optimization vs. Full Vector DB (RAG)**: Full vector embeddings (e.g. Pinecone/Milvus) would have added external infrastructure dependencies and latency without tangible benefits for a 7-page knowledge base. Instead, I built an intelligent keyword-directed context injector (`getTargetedKnowledgeContext()`) that selects only the relevant operational policies (Royalty vs. ISBN vs. Printing vs. Distribution) per inquiry. This reduced prompt token usage by ~65% while keeping latency under 1.2 seconds.
-- **WebSocket Event Architecture vs. Short Polling**: Polling creates wasteful server load and delayed responses. I utilized Socket.IO rooms (`author_{id}`, `admin_queue`, `ticket_{id}`) to deliver real-time conversation updates to the author the moment an admin responds, satisfying the "near real-time without page refresh" mandate.
-- **Zero-Friction Reviewer Experience**: Evaluators often waste time registering accounts or looking up passwords. I built an in-app "⚡ Fast Demo Account Switcher" and pre-seeded realistic tickets across all 6 categories and 4 priority tiers, enabling reviewers to verify author and admin workflows in seconds.
+- **Synchronous triage vs. a queue.** Triage adds about a second to ticket creation (bounded by the timeout). A job queue would remove that, but adds Redis and a worker for a demo of this size. The service boundary is already where a queue would slot in.
+- **Keyword section selection vs. embeddings.** For a seven-section KB, choosing sections by category plus keywords is predictable, testable and free. Embedding retrieval becomes worth it once past resolved tickets and FAQs are added.
+- **MongoDB with denormalised fields.** Tickets copy author name and book title so the queue is one indexed query, with ranks stored for DB-side urgency sorting and pagination. The cost is updating copies if an author renames, which is rare.
+- **In-memory MongoDB fallback.** It makes `npm run dev` work with zero setup and keeps tests hermetic. It is disabled by default in production.
+- **Attachments are metadata only**, as the brief allows. Upload with virus scanning is the next step.
 
----
+## Taking it to production
 
-### 3. Production Evolution Roadmap (Scaling to 22,000+ Titles)
-
-If deployed to BookLeaf’s full production environment with thousands of daily queries, I would introduce the following evolutions:
-
-1. **Async Message Broker for High-Volume Ingestion**: Replace in-process ticket processing with an asynchronous queue (e.g., BullMQ + Redis or AWS SQS). High-volume query spikes (such as on royalty payout days) would be queued, worker pools would handle AI classification and draft pre-computation asynchronously, and WebSocket events would notify admins upon completion.
-2. **Automated ERP & Distribution Marketplace API Connectors**: Rather than relying only on static database records, integrate direct APIs with Amazon SP-API and Flipkart Marketplace API. When an author inquires about an unavailable book, the backend could trigger an automated real-time ASIN inventory sync probe before the admin even reads the ticket.
-3. **Continuous AI Fine-Tuning & Confidence Feedback Loop**: Store admin override events as high-value training telemetry. When an admin modifies an AI category or edits a draft response, log the delta. This creates a supervised dataset to fine-tune a domain-specific BookLeaf LoRA model that improves classification accuracy month-over-month.
-4. **Author Self-Service AI Defect Verification**: For printing quality disputes, integrate visual AI models (Gemini Flash Vision) into the file upload endpoint to analyze photos of misprinted pages or broken spines, auto-approving standard reprints under ₹1,500 without requiring manual admin verification.
-
+1. Move triage and drafting to a queue (BullMQ) with retries and a dead-letter view; create tickets instantly and push triage results over the socket.
+2. Build an evaluation set from real historical tickets with known categories and approved replies, and run it on every prompt or model change; track the override rate in production as the live signal.
+3. Pre-generate drafts for Critical/High tickets only, so the most urgent ones are ready when an admin opens them while keeping cost low.
+4. Add retrieval over resolved tickets so drafts can reuse answers the team has already approved.
+5. Scale-out basics: Socket.IO Redis adapter, httpOnly cookie sessions, structured logging and tracing around AI calls, per-priority SLA timers, email notifications on replies, and an audit log of status and assignment changes.
+6. Connect real systems: royalty ledger and marketplace APIs (Amazon SP-API, Flipkart) so the facts given to the model are live, and stock re-syncs can be triggered from the ticket itself.
