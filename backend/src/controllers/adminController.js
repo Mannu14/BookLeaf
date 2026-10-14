@@ -234,9 +234,11 @@ const sendAdminReply = async (req, res, next) => {
     const { message, isAIDrafted, resolveTicket } = req.body;
     const adminUser = req.user;
 
-    if (!message || !message.trim()) {
+    if (!message || !String(message).trim()) {
       return res.status(400).json({ success: false, message: 'Reply message cannot be empty' });
     }
+
+    const cleanReply = String(message).trim().slice(0, 10000);
 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
@@ -249,7 +251,7 @@ const sendAdminReply = async (req, res, next) => {
       sender: adminUser._id,
       sender_name: adminUser.name,
       sender_role: 'admin',
-      message: message.trim(),
+      message: cleanReply,
       is_ai_drafted: Boolean(isAIDrafted),
       edited_by_admin: true,
     });
@@ -291,9 +293,11 @@ const addInternalNote = async (req, res, next) => {
     const { note } = req.body;
     const adminUser = req.user;
 
-    if (!note || !note.trim()) {
+    if (!note || !String(note).trim()) {
       return res.status(400).json({ success: false, message: 'Note text cannot be empty' });
     }
+
+    const cleanNote = String(note).trim().slice(0, 5000);
 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
@@ -304,7 +308,7 @@ const addInternalNote = async (req, res, next) => {
       ticket: ticket._id,
       author: adminUser._id,
       author_name: adminUser.name,
-      note: note.trim(),
+      note: cleanNote,
     });
     await newNote.save();
 

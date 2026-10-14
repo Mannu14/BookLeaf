@@ -20,6 +20,22 @@ const server = http.createServer(app);
 // Initialize WebSockets
 initSocket(server);
 
+const helmet = require('helmet');
+const rateLimit = require('express-rate-limit');
+
+// Security Headers
+app.use(helmet({ crossOriginResourcePolicy: false }));
+
+// Rate limit for auth login endpoint (anti-brute-force)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 100,
+  message: { success: false, message: 'Too many authentication attempts. Please try again after 15 minutes.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+app.use('/api/auth/login', authLimiter);
+
 // Middleware
 app.use(
   cors({

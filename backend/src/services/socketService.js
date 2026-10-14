@@ -81,9 +81,8 @@ const emitNewMessage = (ticketId, authorId, message) => {
 
 const emitNewInternalNote = (ticketId, note) => {
   const socketIO = getIO();
-  // Internal notes ONLY go to admins
+  // Internal notes STRICTLY go to authenticated admin rooms only
   socketIO.to('admin_queue').emit('new_internal_note', { ticketId, note });
-  socketIO.to(`ticket_${ticketId}`).emit('new_internal_note', { ticketId, note });
 };
 
 module.exports = {

@@ -21,12 +21,15 @@ const createTicket = async (req, res, next) => {
     const { book_id, subject, description, attachment } = req.body;
     const author = req.user;
 
-    if (!subject || !description) {
+    if (!subject || !description || !subject.trim() || !description.trim()) {
       return res.status(400).json({
         success: false,
         message: 'Subject and description are required.',
       });
     }
+
+    const cleanSubject = String(subject).trim().slice(0, 200);
+    const cleanDescription = String(description).trim().slice(0, 10000);
 
     let book = null;
     let bookTitle = 'General / Account Level';
@@ -39,15 +42,15 @@ const createTicket = async (req, res, next) => {
 
     // 1. AI Auto-Classification
     const classificationResult = await aiService.classifyTicket({
-      subject,
-      description,
+      subject: cleanSubject,
+      description: cleanDescription,
       bookTitle,
     });
 
     // 2. AI Priority Scoring
     const priorityResult = await aiService.calculatePriority({
-      subject,
-      description,
+      subject: cleanSubject,
+      description: cleanDescription,
       category: classificationResult.category,
       authorContext: {
         author_id: author.author_id,
@@ -65,8 +68,8 @@ const createTicket = async (req, res, next) => {
         ticket_number: ticketNumber,
         category: classificationResult.category,
         priority: priorityResult.priority,
-        subject,
-        description,
+        subject: cleanSubject,
+        description: cleanDescription,
       },
       author,
       book,
@@ -83,8 +86,8 @@ const createTicket = async (req, res, next) => {
       book: book ? book._id : null,
       book_id: book ? book.book_id : null,
       book_title: bookTitle,
-      subject,
-      description,
+      subject: cleanSubject,
+      description: cleanDescription,
       category: classificationResult.category,
       priority: priorityResult.priority,
       status: 'Open',
@@ -194,9 +197,11 @@ const getTicketById = async (req, res, next) => {
 const addAuthorMessage = async (req, res, next) => {
   try {
     const { message } = req.body;
-    if (!message || !message.trim()) {
+    if (!message || !String(message).trim()) {
       return res.status(400).json({ success: false, message: 'Message content is required.' });
     }
+
+    const cleanMessage = String(message).trim().slice(0, 5000);
 
     const ticket = await Ticket.findById(req.params.id);
     if (!ticket) {
@@ -222,7 +227,7 @@ const addAuthorMessage = async (req, res, next) => {
       sender: req.user._id,
       sender_name: req.user.name,
       sender_role: 'author',
-      message: message.trim(),
+      message: cleanMessage,
     });
     await newMessage.save();
 
